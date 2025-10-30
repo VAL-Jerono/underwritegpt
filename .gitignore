@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.env/
 env/
 ENV/
 
@@ -12,11 +13,15 @@ ENV/
 # Data
 data/raw/*.csv
 *.csv
+cleaned_data.csv
+data_with_summaries.csv
 
 # Models (too large for git)
 models/*.npy
 models/*.bin
 models/*.index
+
+
 
 # IDE
 .vscode/
