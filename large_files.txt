@@ -1,0 +1,7 @@
+./models/faiss_index.bin
+./models/embeddings.npy
+./models/faiss_no_claims_index.bin
+./models/faiss_index_no_claims.bin
+./venv/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib
+./venv/lib/python3.12/site-packages/numpy/.dylibs/libopenblas64_.0.dylib
+./venv/lib/python3.12/site-packages/scipy/.dylibs/libscipy_openblas.dylib
