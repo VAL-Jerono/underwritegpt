@@ -13,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Minimal, clean CSS
+# CSS
 st.markdown("""
 <style>
     .main-header {
@@ -92,7 +92,6 @@ def load_system():
         index_claims = faiss.read_index('models/faiss_claims_index.bin')
         index_no_claims = faiss.read_index('models/faiss_no_claims_index.bin')
     except:
-        # Build indices if missing
         embeddings = np.load('models/embeddings.npy')
         claim_mask = df['claim_status'] == 1
         
@@ -116,92 +115,151 @@ def load_system():
     return df, model, index_claims, index_no_claims, df_claims, df_no_claims
 
 def extract_features(text):
-    """Extract key features from text"""
-    age = re.search(r'(\d+)-year-old', text)
-    age = int(age.group(1)) if age else 35
+    """Extract key features - COMPLETELY REWRITTEN"""
+    text_lower = text.lower()
     
-    v_age = re.search(r'(\d+)-year-old\s+(?:vehicle|car|Petrol|Diesel|Electric)', text)
-    v_age = int(v_age.group(1)) if v_age else 5
+    # Find ALL numbers followed by "year-old" or "year old"
+    all_ages = re.findall(r'(\d+)[-\s]?year[-\s]?old', text_lower)
     
-    airbags = re.search(r'(\d+)\s+airbag', text)
-    airbags = int(airbags.group(1)) if airbags else 4
+    # First number is driver age, second (if exists) is vehicle age
+    if len(all_ages) >= 2:
+        age = int(all_ages[0])
+        v_age = float(all_ages[1])
+    elif len(all_ages) == 1:
+        age = int(all_ages[0])
+        v_age = 5.0  # Default
+    else:
+        age = 35
+        v_age = 5.0
     
-    has_esc = 'ESC' in text or 'esc' in text.lower()
+    # Airbags
+    airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
+    airbags = int(airbags_match.group(1)) if airbags_match else 4
     
-    return {'age': age, 'vehicle_age': v_age, 'airbags': airbags, 'has_esc': has_esc}
+    # Safety features - exact word boundary matching
+    has_esc = bool(re.search(r'\besc\b', text_lower))
+    has_no_esc = bool(re.search(r'no\s+esc', text_lower))
+    if has_no_esc:
+        has_esc = False
+    
+    has_brake_assist = 'brake assist' in text_lower
+    
+    return {
+        'age': age, 
+        'vehicle_age': v_age, 
+        'airbags': airbags, 
+        'has_esc': has_esc,
+        'has_brake_assist': has_brake_assist
+    }
 
 def calculate_feature_risk(features, base_rate):
-    """Calculate risk from features"""
-    risk = base_rate
+    """Calculate risk from features - REALISTIC adjustments"""
+    risk_adjustment = 0.0
     
+    # Age risk
     if features['age'] < 25:
-        risk *= 1.3
+        risk_adjustment += 0.025  # +2.5pp
+    elif features['age'] < 30:
+        risk_adjustment += 0.012  # +1.2pp
+    elif features['age'] > 65:
+        risk_adjustment += 0.018  # +1.8pp
     elif features['age'] > 60:
-        risk *= 1.2
+        risk_adjustment += 0.008  # +0.8pp
+    else:
+        risk_adjustment -= 0.005  # -0.5pp
     
+    # Vehicle age risk (MOST IMPORTANT FACTOR)
     if features['vehicle_age'] > 10:
-        risk *= 1.4
+        risk_adjustment += 0.035  # +3.5pp
+    elif features['vehicle_age'] > 7:
+        risk_adjustment += 0.020  # +2.0pp
     elif features['vehicle_age'] > 5:
-        risk *= 1.1
+        risk_adjustment += 0.010  # +1.0pp
+    elif features['vehicle_age'] <= 3:
+        risk_adjustment -= 0.015  # -1.5pp
     
-    if features['airbags'] < 4:
-        risk *= 1.2
+    # Airbags
+    if features['airbags'] <= 2:
+        risk_adjustment += 0.015  # +1.5pp
     elif features['airbags'] >= 6:
-        risk *= 0.9
+        risk_adjustment -= 0.010  # -1.0pp
     
+    # Safety features
     if not features['has_esc']:
-        risk *= 1.1
+        risk_adjustment += 0.012  # +1.2pp
+    if not features['has_brake_assist']:
+        risk_adjustment += 0.008  # +0.8pp
     
-    return min(risk, 1.0)
+    feature_risk = base_rate + risk_adjustment
+    feature_risk = max(0.01, min(0.30, feature_risk))
+    
+    return feature_risk
 
 def search_balanced(query, model, idx_claims, idx_no_claims, df_claims, df_no_claims, k=5):
-    """Search both indices"""
+    """Search both indices with proper weighting"""
     query_vec = model.encode([query])
     
-    # Search claims
+    # Search both indices
     dist_c, idx_c = idx_claims.search(query_vec, k)
     results_c = df_claims.iloc[idx_c[0]].copy()
     results_c['distance'] = dist_c[0]
     results_c['source'] = 'claim'
     
-    # Search no-claims
     dist_nc, idx_nc = idx_no_claims.search(query_vec, k)
     results_nc = df_no_claims.iloc[idx_nc[0]].copy()
     results_nc['distance'] = dist_nc[0]
     results_nc['source'] = 'no_claim'
     
     # Combine
-    combined = pd.concat([results_c, results_nc]).sort_values('distance').reset_index(drop=True)
+    combined = pd.concat([results_c, results_nc]).reset_index(drop=True)
     
-    # Calculate weights
-    max_d = combined['distance'].max()
-    min_d = combined['distance'].min()
-    if max_d > min_d:
-        combined['weight'] = 1 - ((combined['distance'] - min_d) / (max_d - min_d))
-    else:
-        combined['weight'] = 1.0
+    # Simple inverse distance weighting
+    combined['weight'] = 1.0 / (1.0 + combined['distance'])
+    
+    # Sort by distance
+    combined = combined.sort_values('distance').reset_index(drop=True)
     
     return combined
 
-def calculate_weighted_risk(cases):
-    """Calculate weighted risk"""
+def calculate_weighted_risk(cases, base_rate):
+    """Calculate weighted risk with better calibration"""
+    # Weighted average
     weighted_sum = (cases['claim_status'] * cases['weight']).sum()
     total_weight = cases['weight'].sum()
-    return weighted_sum / total_weight if total_weight > 0 else 0
+    
+    if total_weight == 0:
+        return base_rate
+    
+    weighted_risk = weighted_sum / total_weight
+    
+    # Adjust towards base rate to prevent extreme values from forced 50/50 sampling
+    # The forced sampling means we expect ~50% base proportion in results
+    # We need to scale this back to the true base rate
+    
+    # If weighted_risk is close to 0.5, that's "average" similarity
+    # Map 0.5 -> base_rate, <0.5 -> lower, >0.5 -> higher
+    
+    deviation = weighted_risk - 0.5
+    adjusted_risk = base_rate + (deviation * base_rate * 2)
+    
+    # Clamp to reasonable range
+    adjusted_risk = max(0.01, min(0.25, adjusted_risk))
+    
+    return adjusted_risk
 
 def determine_risk_level(rag_risk, feature_risk, base_rate):
-    """Determine final risk level"""
-    combined = (0.6 * rag_risk) + (0.4 * feature_risk)
-    multiplier = combined / base_rate
+    """Determine final risk level - Feature-heavy weighting"""
+    # Give more weight to features since RAG has forced sampling bias
+    combined = (0.70 * feature_risk) + (0.30 * rag_risk)
     
-    if multiplier >= 2.5:
-        return "🔴 HIGH RISK", "risk-high", combined, multiplier
-    elif multiplier >= 2.0:
-        return "🟠 MEDIUM-HIGH RISK", "risk-medium-high", combined, multiplier
-    elif multiplier >= 1.5:
-        return "🟡 MEDIUM RISK", "risk-medium", combined, multiplier
-    else:
-        return "🟢 LOW RISK", "risk-low", combined, multiplier
+    if combined >= 0.12:  # 12%+ (2x base rate)
+        return "🔴 HIGH RISK", "risk-high", combined
+    elif combined >= 0.09:  # 9-12% (1.4-2x base rate)
+        return "🟠 MEDIUM-HIGH RISK", "risk-medium-high", combined
+    elif combined >= 0.07:  # 7-9% (1.1-1.4x base rate)
+        return "🟡 MEDIUM RISK", "risk-medium", combined
+    else:  # <7%
+        return "🟢 LOW RISK", "risk-low", combined
 
 # Load system
 df, model, idx_claims, idx_no_claims, df_claims, df_no_claims = load_system()
@@ -211,7 +269,7 @@ base_rate = df['claim_status'].mean()
 st.markdown('<p class="main-header">🎯 UnderwriteGPT</p>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; color: #666; margin-bottom: 2rem;">Fast • Smart • Explainable Risk Assessment</p>', unsafe_allow_html=True)
 
-# Quick examples in columns
+# Quick examples
 col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("🔴 High Risk Example", use_container_width=True):
@@ -221,7 +279,7 @@ with col2:
         st.session_state.query = "35-year-old with 6-year-old Petrol, 4 airbags, ESC"
 with col3:
     if st.button("🟢 Low Risk Example", use_container_width=True):
-        st.session_state.query = "45-year-old with 2-year-old Electric, 8 airbags, ESC"
+        st.session_state.query = "45-year-old with 2-year-old Electric, 8 airbags, ESC, brake assist"
 
 # Main input
 query = st.text_input(
@@ -237,16 +295,21 @@ if analyze and query:
     with st.spinner('Analyzing...'):
         # Extract features
         features = extract_features(query)
+        
+        # Calculate risks
         feature_risk = calculate_feature_risk(features, base_rate)
         
         # Search
         cases = search_balanced(query, model, idx_claims, idx_no_claims, df_claims, df_no_claims, k=5)
         
-        # Calculate risk
-        rag_risk = calculate_weighted_risk(cases)
-        risk_label, risk_class, combined_risk, multiplier = determine_risk_level(rag_risk, feature_risk, base_rate)
+        # Calculate RAG risk
+        rag_risk = calculate_weighted_risk(cases, base_rate)
+        
+        # Determine level
+        risk_label, risk_class, combined_risk = determine_risk_level(rag_risk, feature_risk, base_rate)
         
         claims_found = cases['claim_status'].sum()
+        multiplier = combined_risk / base_rate if base_rate > 0 else 1.0
     
     st.markdown("---")
     
@@ -254,6 +317,23 @@ if analyze and query:
     st.markdown(f'<div class="{risk_class}">{risk_label}</div>', unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Debug info
+    with st.expander("🔧 Debug Info - Feature Extraction Check"):
+        st.write("**Query:**", query)
+        st.write("**Extracted Features:**", features)
+        st.write("---")
+        st.write(f"**Base Rate:** {base_rate:.2%}")
+        st.write(f"**Feature Risk:** {feature_risk:.2%} ({(feature_risk/base_rate):.2f}x base) - 70% weight")
+        st.write(f"**RAG Risk:** {rag_risk:.2%} ({(rag_risk/base_rate):.2f}x base) - 30% weight")
+        st.write(f"**Combined Risk:** {combined_risk:.2%}")
+        st.write(f"**Final Multiplier:** {multiplier:.2f}x base rate")
+        st.write("---")
+        st.write(f"**Risk Thresholds:**")
+        st.write(f"- HIGH: ≥12.0%")
+        st.write(f"- MED-HIGH: ≥9.0%")
+        st.write(f"- MEDIUM: ≥7.0%")
+        st.write(f"- LOW: <7.0%")
     
     # Key metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -264,13 +344,13 @@ if analyze and query:
     
     st.markdown("---")
     
-    # Two columns: Actions and Evidence
+    # Two columns
     left, right = st.columns([1, 1])
     
     with left:
         st.markdown("### 📋 Recommended Actions")
         
-        if multiplier >= 2.5:
+        if combined_risk >= 0.12:
             st.markdown("""
 <div class="action-card">
 <b>⚠️ MANUAL REVIEW REQUIRED</b><br><br>
@@ -283,7 +363,7 @@ if analyze and query:
 </div>
 """, unsafe_allow_html=True)
         
-        elif multiplier >= 2.0:
+        elif combined_risk >= 0.09:
             st.markdown("""
 <div class="action-card">
 <b>⚠️ CAREFUL REVIEW</b><br><br>
@@ -296,7 +376,7 @@ if analyze and query:
 </div>
 """, unsafe_allow_html=True)
         
-        elif multiplier >= 1.5:
+        elif combined_risk >= 0.07:
             st.markdown("""
 <div class="action-card">
 <b>📋 STANDARD PROCESSING</b><br><br>
@@ -326,31 +406,45 @@ if analyze and query:
         
         factors = []
         if features['age'] < 25:
-            factors.append("⚠️ Young driver (higher risk)")
+            factors.append(f"⚠️ Young driver ({features['age']} years, +2.5pp)")
+        elif features['age'] < 30:
+            factors.append(f"⚠️ Young driver ({features['age']} years, +1.2pp)")
+        elif features['age'] > 65:
+            factors.append(f"⚠️ Senior driver ({features['age']} years, +1.8pp)")
         elif features['age'] > 60:
-            factors.append("⚠️ Senior driver")
+            factors.append(f"⚠️ Senior driver ({features['age']} years, +0.8pp)")
         else:
-            factors.append("✅ Experienced driver")
+            factors.append(f"✅ Experienced driver ({features['age']} years, -0.5pp)")
         
         if features['vehicle_age'] > 10:
-            factors.append("⚠️ Old vehicle (12+ years)")
+            factors.append(f"⚠️ OLD vehicle ({features['vehicle_age']:.1f} years, +3.5pp)")
+        elif features['vehicle_age'] > 7:
+            factors.append(f"⚠️ Aging vehicle ({features['vehicle_age']:.1f} years, +2.0pp)")
         elif features['vehicle_age'] > 5:
-            factors.append("⚠️ Aging vehicle (6-10 years)")
+            factors.append(f"⚡ Medium age vehicle ({features['vehicle_age']:.1f} years, +1.0pp)")
+        elif features['vehicle_age'] <= 3:
+            factors.append(f"✅ New vehicle ({features['vehicle_age']:.1f} years, -1.5pp)")
         else:
-            factors.append("✅ Newer vehicle")
+            factors.append(f"✅ Newer vehicle ({features['vehicle_age']:.1f} years, neutral)")
         
         if features['airbags'] >= 6:
-            factors.append("✅ Excellent safety (6+ airbags)")
+            factors.append(f"✅ Excellent safety ({features['airbags']} airbags, -1.0pp)")
         elif features['airbags'] >= 4:
-            factors.append("✅ Good safety (4+ airbags)")
+            factors.append(f"✅ Good safety ({features['airbags']} airbags, neutral)")
         else:
-            factors.append("⚠️ Basic safety (2-3 airbags)")
+            factors.append(f"⚠️ Basic safety ({features['airbags']} airbags, +1.5pp)")
         
         if features['has_esc']:
-            factors.append("✅ Has ESC")
+            factors.append("✅ Has ESC (-1.2pp)")
         else:
-            factors.append("⚠️ No ESC")
+            factors.append("⚠️ No ESC (+1.2pp)")
+            
+        if features['has_brake_assist']:
+            factors.append("✅ Has brake assist (-0.8pp)")
+        else:
+            factors.append("⚠️ No brake assist (+0.8pp)")
         
+        st.markdown("*pp = percentage points adjustment*")
         for f in factors:
             st.markdown(f"• {f}")
     
@@ -360,29 +454,30 @@ if analyze and query:
         st.markdown(f"""
 <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
 <b>Sample:</b> 5 claims + 5 no-claims<br>
-<b>Weighted Risk:</b> {rag_risk:.1%}<br>
-<b>Your Risk:</b> {combined_risk:.1%} ({multiplier:.1f}x base)
+<b>Feature Risk:</b> {feature_risk:.1%} (70% weight)<br>
+<b>RAG Risk:</b> {rag_risk:.1%} (30% weight)<br>
+<b>Combined:</b> {combined_risk:.1%} ({multiplier:.1f}x base)
 </div>
 """, unsafe_allow_html=True)
         
-        # Show top 6 cases
-        for i, (idx, row) in enumerate(cases.head(6).iterrows(), 1):
+        # Show top cases
+        for i, (idx, row) in enumerate(cases.head(8).iterrows(), 1):
             status = "❌ Claim" if row['claim_status'] == 1 else "✅ No Claim"
-            similarity = row['weight']
+            weight = row['weight']
+            distance = row['distance']
             
-            # Truncate summary
             summary = row['summary']
-            if len(summary) > 150:
-                summary = summary[:150] + "..."
+            if len(summary) > 140:
+                summary = summary[:140] + "..."
             
             st.markdown(f"""
 <div class="case-summary">
-<b>{i}. {status}</b> | Match: {similarity:.2f}<br>
+<b>{i}. {status}</b> | Weight: {weight:.3f} | Distance: {distance:.2f}<br>
 <small>{summary}</small>
 </div>
 """, unsafe_allow_html=True)
         
-        # Similarity chart
+        # Weight distribution chart
         fig = go.Figure()
         colors = cases.head(10)['claim_status'].map({0: '#44cc44', 1: '#ff4444'})
         fig.add_trace(go.Bar(
@@ -390,11 +485,12 @@ if analyze and query:
             y=cases.head(10)['weight'],
             marker_color=colors,
             text=cases.head(10)['claim_status'].map({0: '✅', 1: '❌'}),
-            textposition='auto'
+            textposition='auto',
+            hovertemplate='<b>Case %{x}</b><br>Weight: %{y:.3f}<extra></extra>'
         ))
         fig.update_layout(
-            title="Similarity Weights (Sorted)",
-            xaxis_title="Case",
+            title="Case Weights Distribution",
+            xaxis_title="Case Rank",
             yaxis_title="Weight",
             height=250,
             margin=dict(l=20, r=20, t=40, b=20),
@@ -430,8 +526,16 @@ Risk Multiplier: {multiplier:.1f}x base rate
 Base Rate: {base_rate:.2%}
 
 COMPONENTS:
-Feature Risk: {feature_risk:.2%}
-RAG Risk (Weighted): {rag_risk:.2%}
+Feature Risk: {feature_risk:.2%} (70% weight)
+RAG Risk: {rag_risk:.2%} (30% weight)
+Combined: {combined_risk:.2%}
+
+EXTRACTED FEATURES:
+Driver Age: {features['age']}
+Vehicle Age: {features['vehicle_age']} years
+Airbags: {features['airbags']}
+ESC: {'Yes' if features['has_esc'] else 'No'}
+Brake Assist: {'Yes' if features['has_brake_assist'] else 'No'}
 
 SIMILAR CASES: {claims_found}/10 had claims
 
@@ -439,7 +543,7 @@ TOP CASES:
 """
         for i, (idx, row) in enumerate(cases.head(10).iterrows(), 1):
             status = "CLAIM" if row['claim_status'] == 1 else "NO CLAIM"
-            report += f"\n{i}. [{status}] Weight: {row['weight']:.3f}\n   {row['summary']}\n"
+            report += f"\n{i}. [{status}] Weight: {row['weight']:.3f} Distance: {row['distance']:.2f}\n   {row['summary']}\n"
         
         st.download_button(
             "📄 Download Report (TXT)",
@@ -454,8 +558,8 @@ elif analyze:
 
 # Footer
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
 <div style='text-align: center; color: #888; padding: 1rem;'>
-<small>UnderwriteGPT • Balanced RAG System • {total:,} policies analyzed</small>
+<small>UnderwriteGPT • Calibrated Risk System • {len(df):,} policies analyzed</small>
 </div>
-""".format(total=len(df)), unsafe_allow_html=True)
+""", unsafe_allow_html=True)
