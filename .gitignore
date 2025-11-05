@@ -20,6 +20,12 @@ data_with_summaries.csv
 models/*.npy
 models/*.bin
 models/*.index
+models/redone
+models/redone/again/embeddings.npy
+models/redone/again/faiss_index.bin
+models/redone/faiss_index_no_claims.bin
+models/redone/faiss_index.bin
+models/redone/faiss_no_claims_index.bin
 
 
 
