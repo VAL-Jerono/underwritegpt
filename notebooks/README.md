@@ -21,8 +21,9 @@ underwritegpt/
 │
 ├── notebooks/
 │   ├── 01_data_cleaning.ipynb
-│   ├── 02_text_generation.ipynb
-│   ├── 03_rag_retrieval.ipynb
+│   ├── 02_eda.ipynb
+│   ├── 03_text_generation.ipynb
+│   ├── 04_rag_retrieval.ipynb
 │
 ├── app/
 │   └── streamlit_app.py
@@ -292,7 +293,8 @@ Colab will provide a temporary public URL.
 
 ## Minimal evaluation ideas (keep it cheap)
 
-* Simple baseline: how often does nearest neighbour claim_status predict the new case? Compute accuracy/precision.
+* Simple baseline: how often does nearest neighbour claim_status predict the new case? Compute 
+ accuracy/precision.
 * Use stratified holdout to simulate new cases.
 * Record retrieval examples that went well and those that failed; this is valuable for improving summaries.
 
