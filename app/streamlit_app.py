@@ -346,15 +346,20 @@ def make_enhanced_decision(feature_risk: Dict, similar_cases: pd.DataFrame, base
     claim_rate = similar_cases['claim_status'].mean()
     weighted_claim_rate = (similar_cases['claim_status'] * similar_cases['similarity']).sum() / similar_cases['similarity'].sum()
     
-    # Combine feature-based and historical evidence (40% feature, 60% historical)
-    final_risk = (0.40 * overall_risk) + (0.60 * weighted_claim_rate)
+    # Combine feature-based and historical evidence with feature risk floor protection
+    # If feature risk is very high (>0.70), don't let historical data override it
+    if overall_risk > 0.70:
+        final_risk = max((0.60 * overall_risk) + (0.40 * weighted_claim_rate), overall_risk * 0.85)
+    else:
+        final_risk = (0.40 * overall_risk) + (0.60 * weighted_claim_rate)
     
     # Count claims in top similar cases
     top_5_claims = similar_cases.head(5)['claim_status'].sum()
     top_10_claims = similar_cases.head(10)['claim_status'].sum()
     
-    # Decision logic based on validated thresholds
-    if final_risk < 0.50 and claim_rate < 0.06:
+    # Decision logic based on validated thresholds with feature risk override
+    # CRITICAL: If feature risk alone suggests high risk, don't approve based on sparse historical data
+    if final_risk < 0.50 and claim_rate < 0.06 and overall_risk < 0.65:
         return {
             'tier': 'APPROVE',
             'action': '✅ Standard Approval',
@@ -368,9 +373,9 @@ def make_enhanced_decision(feature_risk: Dict, similar_cases: pd.DataFrame, base
             'feature_risk': overall_risk,
             'historical_risk': weighted_claim_rate
         }
-    elif final_risk < 0.58 and claim_rate < 0.09:
+    elif final_risk < 0.58 and claim_rate < 0.09 and overall_risk < 0.70:
         return {
-            'tier': 'MONITOR',``
+            'tier': 'MONITOR',
             'action': '⚠️ Approve with Monitoring',
             'emoji': '🟡',
             'class': 'decision-monitor',
@@ -663,15 +668,15 @@ if len(st.session_state.messages) == 0:
     
     with col1:
         if st.button("🟢 Low Risk Scenario", use_container_width=True):
-            st.session_state.current_query = "45-year-old experienced driver, 2-year-old Petrol sedan, 6 airbags, ESC, brake assist, urban area, 12 month subscription"
+            st.session_state.current_query = "42-year-old experienced driver, 3-year-old Petrol sedan, 6 airbags, ESC, brake assist, TPMS, rural area, 12 month subscription"
     
     with col2:
         if st.button("🟡 Medium Risk Scenario", use_container_width=True):
-            st.session_state.current_query = "35-year-old driver, 7-year-old Diesel vehicle, 4 airbags, ESC, rural area, 5 month subscription"
+            st.session_state.current_query = "38-year-old driver, 6-year-old Petrol vehicle, 4 airbags, ESC, brake assist, urban area, 6 month subscription"
     
     with col3:
         if st.button("🔴 High Risk Scenario", use_container_width=True):
-            st.session_state.current_query = "23-year-old new driver, 12-year-old vehicle, 2 airbags, no ESC, no brake assist, urban, 2 month subscription"
+            st.session_state.current_query = "24-year-old driver, 10-year-old Diesel vehicle, 2 airbags, no ESC, no brake assist, urban area, 3 month subscription"
     
     st.markdown("---")
 
