@@ -40,8 +40,8 @@ models/redone/faiss_no_claims_index.bin
 Thumbs.db
 
 # Streamlit
-.streamlit/./models/faiss_index.bin
-./models/embeddings.npy
+#.streamlit/./models/faiss_index.bin
+#./models/embeddings.npy
 ./models/faiss_no_claims_index.bin
 ./models/faiss_index_no_claims.bin
 ./venv/lib/python3.12/site-packages/torch/lib/libtorch_cpu.dylib
