@@ -1,0 +1,390 @@
+"""
+Utility functions for UnderwriteGPT
+Helper functions for data processing, caching, and formatting
+"""
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Dict, List, Any
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+
+def format_risk_percentage(risk: float) -> str:
+    """Format risk score as colored percentage"""
+    percentage = risk * 100
+    if percentage < 45:
+        color = "🟢"
+        level = "Low"
+    elif percentage < 58:
+        color = "🟡"
+        level = "Moderate"
+    elif percentage < 70:
+        color = "🟠"
+        level = "High"
+    else:
+        color = "🔴"
+        level = "Very High"
+    
+    return f"{color} {percentage:.1f}% ({level})"
+
+
+def format_currency(amount: float, currency: str = "USD") -> str:
+    """Format currency values"""
+    if currency == "USD":
+        return f"${amount:,.2f}"
+    elif currency == "KES":
+        return f"KES {amount:,.2f}"
+    else:
+        return f"{amount:,.2f} {currency}"
+
+
+def calculate_premium_adjustment(risk_score: float, base_premium: float) -> Dict[str, float]:
+    """
+    Calculate premium adjustment based on risk score
+    
+    Args:
+        risk_score: Overall risk score (0-1)
+        base_premium: Base premium amount
+    
+    Returns:
+        Dict with adjusted premium details
+    """
+    if risk_score < 0.45:
+        multiplier = 1.0
+        adjustment = 0
+        tier = "Standard"
+    elif risk_score < 0.58:
+        multiplier = 1.175  # +17.5% average
+        adjustment = base_premium * 0.175
+        tier = "Monitor"
+    elif risk_score < 0.70:
+        multiplier = 1.35  # +35% average
+        adjustment = base_premium * 0.35
+        tier = "Conditional"
+    else:
+        multiplier = 0  # Declined
+        adjustment = 0
+        tier = "Declined"
+    
+    return {
+        "base_premium": base_premium,
+        "adjustment": adjustment,
+        "final_premium": base_premium * multiplier if multiplier > 0 else 0,
+        "multiplier": multiplier,
+        "tier": tier
+    }
+
+
+def get_age_group(age: int) -> str:
+    """Categorize age into groups"""
+    if age < 25:
+        return "Young Driver (<25)"
+    elif age < 35:
+        return "Young Adult (25-34)"
+    elif age < 55:
+        return "Experienced (35-54)"
+    elif age < 65:
+        return "Senior (55-64)"
+    else:
+        return "Elderly (65+)"
+
+
+def get_vehicle_age_category(vehicle_age: float) -> str:
+    """Categorize vehicle age"""
+    if vehicle_age <= 3:
+        return "New (0-3 years)"
+    elif vehicle_age <= 7:
+        return "Moderate (4-7 years)"
+    else:
+        return "Older (8+ years)"
+
+
+def get_subscription_category(months: int) -> str:
+    """Categorize subscription length"""
+    if months < 3:
+        return "Very Short (<3 months)"
+    elif months < 6:
+        return "Short (3-6 months)"
+    elif months < 9:
+        return "Medium (6-9 months)"
+    else:
+        return "Long-term (9+ months)"
+
+
+def generate_query_hash(query: str) -> str:
+    """Generate hash for query caching"""
+    return hashlib.md5(query.lower().strip().encode()).hexdigest()
+
+
+def log_decision(decision: Dict, features: Dict, filepath: str = "logs/decisions.jsonl"):
+    """
+    Log underwriting decisions for audit trail
+    
+    Args:
+        decision: Decision dictionary
+        features: Features dictionary
+        filepath: Path to log file
+    """
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        "decision": decision,
+        "features": features,
+        "version": "2.0"
+    }
+    
+    # Create log directory if needed
+    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+    
+    # Append to JSONL file
+    with open(filepath, 'a') as f:
+        f.write(json.dumps(log_entry) + '\n')
+
+
+def load_decision_logs(filepath: str = "logs/decisions.jsonl") -> List[Dict]:
+    """Load decision logs for analysis"""
+    if not Path(filepath).exists():
+        return []
+    
+    logs = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            if line.strip():
+                logs.append(json.loads(line))
+    
+    return logs
+
+
+def calculate_portfolio_risk(decisions: List[Dict]) -> Dict[str, Any]:
+    """
+    Calculate aggregate risk metrics for a portfolio of decisions
+    
+    Args:
+        decisions: List of decision dictionaries
+    
+    Returns:
+        Portfolio risk summary
+    """
+    if not decisions:
+        return {}
+    
+    tiers = [d['tier'] for d in decisions]
+    risks = [d.get('final_risk', 0) for d in decisions]
+    
+    return {
+        "total_applications": len(decisions),
+        "approved": sum(1 for t in tiers if t in ['APPROVE', 'MONITOR', 'CONDITIONAL']),
+        "rejected": sum(1 for t in tiers if t == 'REJECT'),
+        "approval_rate": sum(1 for t in tiers if t in ['APPROVE', 'MONITOR', 'CONDITIONAL']) / len(decisions),
+        "average_risk": np.mean(risks),
+        "median_risk": np.median(risks),
+        "high_risk_count": sum(1 for r in risks if r > 0.70),
+        "tier_distribution": {
+            "APPROVE": sum(1 for t in tiers if t == 'APPROVE'),
+            "MONITOR": sum(1 for t in tiers if t == 'MONITOR'),
+            "CONDITIONAL": sum(1 for t in tiers if t == 'CONDITIONAL'),
+            "REJECT": sum(1 for t in tiers if t == 'REJECT')
+        }
+    }
+
+
+def format_similar_case(case: pd.Series, rank: int) -> str:
+    """
+    Format a similar case for display
+    
+    Args:
+        case: Pandas Series with case data
+        rank: Rank number
+    
+    Returns:
+        Formatted string
+    """
+    status = "❌ CLAIM" if case['claim_status'] == 1 else "✅ NO CLAIM"
+    similarity = case.get('similarity', 0)
+    
+    summary = f"""
+**Case #{rank}** - {status}  
+**Similarity:** {similarity:.3f}  
+**Age:** {case.get('customer_age', 'N/A')} years  
+**Vehicle:** {case.get('vehicle_age', 'N/A')} year old {case.get('fuel_type', 'N/A')}  
+**Risk Score:** {case.get('overall_risk_score', 0):.1%}  
+"""
+    
+    return summary.strip()
+
+
+def export_to_csv(data: Dict, filename: str = "export.csv"):
+    """Export decision data to CSV"""
+    df = pd.DataFrame([data])
+    df.to_csv(filename, index=False)
+    return filename
+
+
+def validate_query(query: str) -> tuple[bool, str]:
+    """
+    Validate user query
+    
+    Returns:
+        (is_valid, error_message)
+    """
+    if not query or not query.strip():
+        return False, "Query cannot be empty"
+    
+    if len(query) < 10:
+        return False, "Query too short. Please provide more details (age, vehicle info, etc.)"
+    
+    if len(query) > 1000:
+        return False, "Query too long. Please keep it under 1000 characters"
+    
+    # Check for basic required info
+    has_numbers = any(char.isdigit() for char in query)
+    if not has_numbers:
+        return False, "Please include numeric details (age, vehicle age, etc.)"
+    
+    return True, ""
+
+
+def get_recommendation_text(tier: str, mode: str = "underwriter") -> str:
+    """
+    Get contextual recommendation text based on mode
+    
+    Args:
+        tier: Decision tier (APPROVE, MONITOR, CONDITIONAL, REJECT)
+        mode: App mode ('underwriter' or 'mycar')
+    
+    Returns:
+        Contextual recommendation string
+    """
+    if mode == "mycar":
+        recommendations = {
+            "APPROVE": "Great news! Your profile looks good for standard insurance coverage. You should receive competitive rates.",
+            "MONITOR": "You can likely get coverage, but expect slightly higher premiums. Consider improving your safety features or building insurance history.",
+            "CONDITIONAL": "Coverage is possible but may come with conditions. Consider: upgrading vehicle safety features, longer subscription commitment, or building claims-free history.",
+            "REJECT": "Your current profile may face challenges getting coverage. Recommendations: Consider a newer vehicle, improve safety features, or explore specialized insurance providers."
+        }
+    else:  # underwriter mode
+        recommendations = {
+            "APPROVE": "Recommend standard approval. Low risk profile suitable for competitive rates and streamlined processing.",
+            "MONITOR": "Approve with monitoring. Implement quarterly reviews and moderate premium adjustment to mitigate risk.",
+            "CONDITIONAL": "Conditional approval recommended. Require higher deductible, premium loading, and enhanced documentation.",
+            "REJECT": "Recommend decline. Risk profile exceeds acceptable thresholds. Suggest alternative products or risk mitigation before reapplication."
+        }
+    
+    return recommendations.get(tier, "")
+
+
+def create_audit_report(decision: Dict, features: Dict) -> str:
+    """
+    Generate audit-ready report text
+    
+    Args:
+        decision: Decision dictionary
+        features: Features dictionary
+    
+    Returns:
+        Formatted audit report
+    """
+    report = f"""
+UNDERWRITING DECISION AUDIT REPORT
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+DECISION SUMMARY
+================
+Tier: {decision['tier']}
+Action: {decision['action']}
+Confidence: {decision['confidence']:.1f}%
+Premium Adjustment: {decision['premium']}
+
+APPLICANT PROFILE
+=================
+Driver Age: {features['customer_age']} years
+Vehicle Age: {features['vehicle_age']} years
+Subscription: {features['subscription_length']} months
+Location: {'Urban' if features['is_urban'] else 'Rural'}
+Safety Features:
+  - Airbags: {features['airbags']}
+  - ESC: {'Yes' if features['has_esc'] else 'No'}
+  - Brake Assist: {'Yes' if features['has_brake_assist'] else 'No'}
+  - TPMS: {'Yes' if features['has_tpms'] else 'No'}
+
+RISK ANALYSIS
+=============
+Final Risk Score: {decision.get('final_risk', 0):.2%}
+Historical Evidence: {decision['evidence']['claims']}/{decision['evidence']['total']} similar cases claimed
+
+REGULATORY NOTES
+================
+- Decision based on actuarial data from 58,592 policies
+- Risk model validated with 7.8% discrimination between claims/no-claims
+- All decisions subject to human review per company policy
+- Compliant with fair lending and non-discrimination requirements
+
+RECOMMENDATION
+==============
+{get_recommendation_text(decision['tier'], 'underwriter')}
+"""
+    
+    return report.strip()
+
+
+# Cache management utilities
+
+def clear_cache(cache_dir: str = "models/llm_cache"):
+    """Clear LLM response cache"""
+    cache_path = Path(cache_dir)
+    if cache_path.exists():
+        for file in cache_path.glob("*.json"):
+            file.unlink()
+        return True
+    return False
+
+
+def get_cache_stats(cache_dir: str = "models/llm_cache") -> Dict:
+    """Get cache statistics"""
+    cache_path = Path(cache_dir)
+    if not cache_path.exists():
+        return {"count": 0, "size_mb": 0}
+    
+    files = list(cache_path.glob("*.json"))
+    total_size = sum(f.stat().st_size for f in files)
+    
+    return {
+        "count": len(files),
+        "size_mb": total_size / (1024 * 1024),
+        "files": [f.name for f in files[:10]]  # Show first 10
+    }
+
+
+# Data validation utilities
+
+def validate_features(features: Dict) -> tuple[bool, List[str]]:
+    """
+    Validate extracted features
+    
+    Returns:
+        (is_valid, list_of_warnings)
+    """
+    warnings = []
+    
+    if features['customer_age'] < 18:
+        warnings.append("Driver age below legal minimum (18)")
+    if features['customer_age'] > 85:
+        warnings.append("Driver age above typical coverage range (85+)")
+    
+    if features['vehicle_age'] < 0:
+        warnings.append("Vehicle age cannot be negative")
+    if features['vehicle_age'] > 25:
+        warnings.append("Vehicle age unusually high (25+ years)")
+    
+    if features['subscription_length'] < 1:
+        warnings.append("Subscription must be at least 1 month")
+    if features['subscription_length'] > 24:
+        warnings.append("Subscription length unusually long (24+ months)")
+    
+    if features['airbags'] > 8:
+        warnings.append("Airbag count seems high (8+)")
+    
+    is_valid = len(warnings) == 0
+    return is_valid, warnings

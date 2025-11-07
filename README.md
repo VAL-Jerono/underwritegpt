@@ -5,6 +5,9 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Status: Production Ready](https://img.shields.io/badge/status-production%20ready-brightgreen.svg)]()
+[![Live Demo](https://img.shields.io/badge/demo-live%20on%20streamlit-FF4B4B?logo=streamlit)](https://underwritegpt.streamlit.app)
+
+**[🚀 Try Live Demo](https://underwritegpt.streamlit.app)** | [📖 Documentation](#-table-of-contents) | [⚡ Quick Start](#-getting-started)
 
 ---
 
@@ -13,12 +16,14 @@
 - [The Story](#-the-story-why-this-project-exists)
 - [What Problem Are We Solving?](#-what-problem-are-we-solving)
 - [The Solution: RAG-Powered Underwriting](#-the-solution-rag-powered-underwriting)
+- [Live Demo](#-live-demo)
 - [How It Works (The Journey)](#-how-it-works-the-journey)
 - [Project Architecture](#-project-architecture)
 - [Getting Started](#-getting-started)
 - [The Data Pipeline](#-the-data-pipeline-from-chaos-to-clarity)
 - [Performance & Results](#-performance--results)
 - [Use Cases](#-use-cases)
+- [Deployment Guide](#-deployment-guide)
 - [Future Enhancements](#-future-enhancements)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -39,27 +44,28 @@ Sarah doesn't just look at risk scores. She *remembers*. "This reminds me of tha
 
 ## 🔥 What Problem Are We Solving?
 
-Traditional insurance AI has three fatal flaws:
+**The Core Challenge:** Insurance underwriters need **fast, accurate risk assessments** that they can trust and explain to customers, regulators, and management.
 
-### 1. **The Black Box Problem** 🎩🐰
-*"Computer says no."*
+Current manual underwriting is:
+- ⏰ **Slow**: Takes hours to review applications and recall similar cases
+- 🎲 **Inconsistent**: Different underwriters make different calls on similar profiles
+- 📚 **Limited**: Can't mentally search through thousands of historical cases
+- ❓ **Hard to Explain**: Decisions based on gut feel are difficult to justify
 
-Traditional ML models are like magicians who won't reveal their tricks. They output a risk score, but when regulators ask "Why did you decline this application?", you get mathematical gibberish:
+**Our Mission:** Build an AI assistant that provides instant, evidence-based underwriting recommendations that human experts can understand and validate.
 
-```
-Risk Score: 0.87
-Feature Importance: [0.23, 0.19, 0.15, ...]
-```
+### Why We Chose RAG (Not Traditional ML)
 
-Good luck explaining that to a customer—or your legal team.
+While building this, we encountered three technical roadblocks that led us to RAG:
 
-### 2. **The Imbalance Nightmare** ⚖️
-In our dataset: **93.6% of policies have no claims**. Only 6.4% do.
+**1. The Black Box Problem** 🎩🐰
+Traditional ML models output cryptic risk scores with no explanation. When we tried XGBoost, it said "Risk: 0.87" but couldn't tell us *why*. RAG solves this by showing the actual historical cases that match the application.
 
-Train a model on this, and it learns a sneaky trick: predict "no claim" for everyone and be right 94% of the time! Congratulations, you've built a very expensive coin flip machine.
+**2. The Imbalance Nightmare** ⚖️
+Our dataset had 93.6% no-claims vs 6.4% claims. Standard models just learned to predict "no claim" for everyone (94% accuracy but useless!). RAG doesn't get fooled—it retrieves actual claim patterns from similar cases.
 
-### 3. **The Retraining Treadmill** 🏃‍♂️
-New data arrives. Your model becomes obsolete. You retrain. Deploy. Repeat monthly. It's like painting a bridge—you're never done.
+**3. The Retraining Treadmill** 🏃‍♂️
+Traditional models need retraining and redeployment whenever new data arrives. With RAG, new policies automatically join the knowledge base—no retraining needed.
 
 ---
 
@@ -105,6 +111,36 @@ System Response:
 ```
 
 See? The AI shows its work. Like Sarah would.
+
+---
+
+## 🌐 Live Demo
+
+Experience UnderwriteGPT in action without any installation:
+
+### **[🚀 Launch Interactive Demo](https://underwritegpt.streamlit.app)**
+
+The live demo is deployed on Streamlit Cloud and features:
+
+**✨ Two Modes:**
+- **🧠 Underwriter Mode**: Professional interface for insurance professionals
+- **🚗 My Car Check**: Consumer-friendly mode for policy applicants
+
+**Try These Sample Queries:**
+- 🟢 **Low Risk**: `42-year-old driver, 2-year-old sedan, 6 airbags, ESC, brake assist, rural, 12-month subscription`
+- 🟡 **Medium Risk**: `35-year-old driver, 5-year-old car, 4 airbags, urban area, 6-month subscription`
+- 🔴 **High Risk**: `23-year-old driver, 9-year-old car, 2 airbags, no ESC, urban, 3-month subscription`
+
+**Features Available:**
+- 🎨 Beautiful glassmorphism UI with dark mode
+- 🤖 AI-powered explanations (fallback templates for free hosting)
+- 📊 Interactive risk breakdowns with Plotly charts
+- 🎯 Real-time similarity search across 58,592 policies
+- 📈 Evidence visualization showing historical claim patterns
+- ⚡ Sub-200ms response times
+- 💾 Session history (analyze multiple applications)
+
+**No signup required. No credit card. Just pure AI underwriting.**
 
 ---
 
@@ -270,7 +306,9 @@ underwritegpt/
 │   └── 05_rag_retrieval.ipynb
 │
 ├── 📂 app/
-│   └── streamlit_app.py              # Interactive demo
+│   ├── streamlit_app.py              # Interactive demo
+│   ├── llm_engine.py                 # LLM integration
+│   └── utils.py                      # Helper functions
 │
 ├── 📂 output/                         # Visualizations
 │   ├── 01_claim_distribution.png
@@ -310,21 +348,22 @@ pip install -r requirements.txt
 
 ```python
 # Load the RAG system
-from rag_system import UnderwriteRAG
+from sentence_transformers import SentenceTransformer
+import faiss
+import pandas as pd
 
-rag = UnderwriteRAG(
-    embeddings_path='models/embeddings.npy',
-    faiss_index_path='models/faiss_index.bin',
-    data_path='data/processed/train_data_with_summaries.csv'
-)
+df = pd.read_csv('data/processed/train_data_with_summaries.csv')
+model = SentenceTransformer('all-MiniLM-L6-v2')
+index = faiss.read_index('models/faiss_index.bin')
 
 # Query the system
 query = "35-year-old driver, 2-year-old Petrol sedan, urban, 4 airbags"
-results = rag.search(query, top_k=5)
+query_vec = model.encode([query], normalize_embeddings=True)
+distances, indices = index.search(query_vec, k=5)
 
-# Get underwriting decision
-decision = rag.make_decision(results)
-print(decision)
+# Get similar cases
+results = df.iloc[indices[0]]
+print(results[['customer_age', 'vehicle_age', 'claim_status', 'overall_risk_score']])
 ```
 
 ### Run the Streamlit Demo
@@ -625,6 +664,184 @@ high_risk_policies = [p for p in portfolio if rag.predict_risk(p) > 0.7]
 ### 5. **Feedback Loop Learning**
 When claims are filed, they automatically become retrievable for future queries. No retraining needed.
 
+---
+
+## 🌍 Deployment Guide
+
+### Streamlit Cloud (Current Live Demo)
+
+The live demo at [underwritegpt.streamlit.app](https://underwritegpt.streamlit.app) runs on Streamlit Cloud's free tier.
+
+**Deployment Steps:**
+
+1. **Fork the repository** on GitHub
+2. **Connect to Streamlit Cloud**:
+   - Go to [share.streamlit.io](https://share.streamlit.io)
+   - Click "New app"
+   - Select your forked repository
+   - Set main file: `app/streamlit_app.py`
+3. **Configure secrets** (optional for LLM):
+   ```toml
+   # .streamlit/secrets.toml
+   LLM_BACKEND = "template"  # or "ollama" if you set up a server
+   ```
+4. **Deploy** - Streamlit handles the rest!
+
+**Free Tier Limitations:**
+- 1GB RAM (sufficient for FAISS index)
+- No persistent storage (uses GitHub files)
+- Public apps only
+- LLM runs in template mode (no Ollama on free tier)
+
+### Self-Hosted with Docker
+
+For production deployments with full LLM support:
+
+```dockerfile
+# Dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY . .
+
+# Expose Streamlit port
+EXPOSE 8501
+
+# Run app
+CMD ["streamlit", "run", "app/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+```
+
+```bash
+# Build and run
+docker build -t underwritegpt .
+docker run -p 8501:8501 underwritegpt
+```
+
+### FastAPI Production API
+
+For enterprise integration:
+
+```python
+# api.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+import faiss
+import pandas as pd
+from app.utils import extract_features, calculate_risk_score
+
+app = FastAPI(title="UnderwriteGPT API", version="2.0")
+
+# Load models on startup
+@app.on_event("startup")
+def load_models():
+    global df, model, index
+    df = pd.read_csv('data/processed/train_data_with_summaries.csv')
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    index = faiss.read_index('models/faiss_index.bin')
+
+class UnderwriteRequest(BaseModel):
+    query: str
+    top_k: int = 20
+
+class UnderwriteResponse(BaseModel):
+    decision: dict
+    risk_analysis: dict
+    similar_cases: list
+    confidence: float
+
+@app.post("/analyze", response_model=UnderwriteResponse)
+def analyze_application(request: UnderwriteRequest):
+    try:
+        # Extract features
+        features = extract_features(request.query)
+        
+        # Calculate risk
+        risk_analysis = calculate_risk_score(features)
+        
+        # Search similar cases
+        query_vec = model.encode([request.query], normalize_embeddings=True)
+        distances, indices = index.search(query_vec, request.top_k)
+        similar_cases = df.iloc[indices[0]].to_dict('records')
+        
+        # Make decision
+        decision = make_decision(risk_analysis, similar_cases)
+        
+        return UnderwriteResponse(
+            decision=decision,
+            risk_analysis=risk_analysis,
+            similar_cases=similar_cases[:10],
+            confidence=decision['confidence']
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "model_loaded": model is not None}
+```
+
+**Deploy with:**
+```bash
+# Install FastAPI
+pip install fastapi uvicorn
+
+# Run server
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### AWS/GCP/Azure Deployment
+
+For cloud production:
+
+**AWS Elastic Beanstalk:**
+```bash
+# Install EB CLI
+pip install awsebcli
+
+# Initialize
+eb init -p python-3.9 underwritegpt
+
+# Create environment
+eb create underwritegpt-prod
+
+# Deploy
+eb deploy
+```
+
+**Google Cloud Run:**
+```bash
+# Build container
+gcloud builds submit --tag gcr.io/PROJECT_ID/underwritegpt
+
+# Deploy
+gcloud run deploy underwritegpt \
+  --image gcr.io/PROJECT_ID/underwritegpt \
+  --platform managed \
+  --memory 2Gi
+```
+
+**Resource Requirements:**
+- **CPU**: 2 cores minimum
+- **RAM**: 4GB (8GB recommended for LLM)
+- **Storage**: 500MB (models + data)
+- **Bandwidth**: ~10KB per request
+
+---
+
+##
 ---
 
 ## 🔮 Future Enhancements

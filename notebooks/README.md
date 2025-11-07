@@ -34,7 +34,6 @@ underwritegpt/
 ├── requirements.txt
 └── README.md
 ```
-
 ---
 
 ## Quick prerequisites (Colab)
