@@ -835,8 +835,8 @@ if st.session_state.messages:
     # LLM Response
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     st.markdown("### 🤖 AI Analysis")
-    for paragraph in result['llm_response']:
-        st.markdown(f"<div class='llm-paragraph'>{paragraph}</div>", unsafe_allow_html=True)
+    # Display the single string response directly (not character by character)
+    st.markdown(f"<div class='llm-paragraph'>{result['llm_response']}</div>", unsafe_allow_html=True)
     
     if result['decision']['imbalance_context']:
         st.markdown(f"""

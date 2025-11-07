@@ -284,6 +284,17 @@ Response:"""
                 json.dump(response, f)
         except Exception as e:
             print(f"⚠️ Cache write failed: {e}")
+    
+    def _init_huggingface_api(self):
+       """Use HuggingFace Inference API (free tier available)"""
+       try:
+            import os
+            api_key = os.getenv('HF_API_KEY')  # Set in Streamlit secrets
+            if api_key:
+                return {'api_key': api_key, 'model': 'mistralai/Mistral-7B-Instruct-v0.2'}
+       except:
+            pass
+       return None
 
 
 # Singleton instance
