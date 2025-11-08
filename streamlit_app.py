@@ -447,56 +447,106 @@ def load_llm():
     """Load LLM engine (cached)"""
     return get_llm_engine()
 
+# In streamlit_app.py, replace the extract_features function completely:
+
 def extract_features(text: str) -> Dict:
-    """Extract features from natural language query"""
+    """Extract features from natural language query - ROBUST VERSION"""
     text_lower = text.lower()
     
-    # Extract ages - IMPROVED PATTERNS
-    # Pattern 1: "age = 46" or "age: 46" or "age 46"
-    age_match = re.search(r'age\s*[=:]\s*(\d+)', text_lower)
-    if age_match:
-        customer_age = int(age_match.group(1))
-    else:
-        # Pattern 2: "46-year-old" or "46 years old" or "46yo"
-        age_match2 = re.search(r'(\d+)[-\s]?(?:year[-\s]?old|yo|years\s+old)', text_lower)
-        customer_age = int(age_match2.group(1)) if age_match2 else 35
+    # ===== EXTRACT CUSTOMER AGE =====
+    customer_age = 35  # default
     
-    # Extract vehicle age - IMPROVED
-    # Pattern 1: "3.0-year-old" or "3-year-old vehicle"
-    vehicle_age_match = re.search(r'(\d+\.?\d*)[-\s]?year[-\s]?old.*?(?:vehicle|car|petrol|diesel)', text_lower)
-    if vehicle_age_match:
-        vehicle_age = float(vehicle_age_match.group(1))
-    else:
-        # Pattern 2: Look for any decimal number before "year-old" that's NOT the driver age
-        all_ages = re.findall(r'(\d+\.?\d*)[-\s]?year[-\s]?old', text_lower)
-        if len(all_ages) >= 2:
-            vehicle_age = float(all_ages[1])
-        elif len(all_ages) == 1 and not age_match:
-            # Only one "year-old" found and no "age =" pattern, assume it's vehicle
-            vehicle_age = float(all_ages[0])
-        else:
-            vehicle_age = 5.0
+    # Try multiple patterns in order of specificity
+    patterns = [
+        r'age\s*[=:]\s*(\d+)',           # "age = 46" or "age: 46"
+        r'age\s+(\d+)',                  # "age 46"
+        r'\(age\s+(\d+)\)',              # "(age 46)"
+        r'driver.*?(\d+)[-\s]year',      # "driver 46-year" or "driver 46 year"
+        r'^.*?(\d+)[-\s]year[-\s]?old\s+driver',  # "46-year-old driver" at start
+    ]
     
-    # Extract subscription - IMPROVED
-    # Pattern 1: "6.2-month subscription" or "6 month subscription"
-    sub_match = re.search(r'(\d+\.?\d*)[-\s]?(?:month|mo)(?:\s+subscription)?', text_lower)
-    subscription = float(sub_match.group(1)) if sub_match else 6
-    subscription = int(round(subscription))  # Round to nearest integer
+    for pattern in patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            customer_age = int(match.group(1))
+            break
     
-    # Extract airbags
+    # ===== EXTRACT VEHICLE AGE =====
+    vehicle_age = 5.0  # default
+    
+    # Look for vehicle age patterns
+    vehicle_patterns = [
+        r'(\d+\.?\d*)[-\s]year[-\s]?old.*?(?:vehicle|car|sedan|suv|truck|petrol|diesel)',
+        r'operates\s+a\s+(\d+\.?\d*)[-\s]year',
+        r'with\s+a\s+(\d+\.?\d*)[-\s]year',
+    ]
+    
+    for pattern in vehicle_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            vehicle_age = float(match.group(1))
+            break
+    
+    # Fallback: if we found "3.0-year-old" but already have customer_age from "age 46", use it for vehicle
+    if vehicle_age == 5.0:  # still default
+        all_year_old = re.findall(r'(\d+\.?\d*)[-\s]year[-\s]?old', text_lower)
+        if len(all_year_old) > 0:
+            # Use the first decimal number if available, or second if we have two
+            for num in all_year_old:
+                num_float = float(num)
+                if num_float != customer_age:  # Don't use the customer age
+                    vehicle_age = num_float
+                    break
+    
+    # ===== EXTRACT SUBSCRIPTION =====
+    subscription = 6  # default
+    
+    sub_patterns = [
+        r'maintains\s+a\s+(\d+\.?\d*)[-\s]?month',
+        r'(\d+\.?\d*)[-\s]?month\s+subscription',
+        r'subscription.*?(\d+\.?\d*)[-\s]?month',
+        r'policy.*?(\d+\.?\d*)[-\s]?month',
+    ]
+    
+    for pattern in sub_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            subscription = int(round(float(match.group(1))))
+            break
+    
+    # ===== EXTRACT AIRBAGS =====
     airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
     airbags = int(airbags_match.group(1)) if airbags_match else 4
     
-    # Extract safety features - IMPROVED
-    has_esc = ('esc' in text_lower or 'electronic stability' in text_lower) and 'no esc' not in text_lower
-    has_brake_assist = 'brake assist' in text_lower or 'brake-assist' in text_lower
-    has_tpms = 'tpms' in text_lower or 'tire pressure' in text_lower
+    # ===== EXTRACT SAFETY FEATURES =====
+    has_esc = (
+        'esc' in text_lower or 
+        'electronic stability' in text_lower or
+        'stability control' in text_lower
+    ) and 'no esc' not in text_lower and 'without esc' not in text_lower
     
-    # Extract region context - IMPROVED
-    is_urban = any(word in text_lower for word in ['urban', 'city', 'metropolitan', 'high-density', 'high density'])
-    is_rural = any(word in text_lower for word in ['rural', 'low-density', 'low density', 'countryside'])
+    has_brake_assist = (
+        'brake assist' in text_lower or 
+        'brake-assist' in text_lower or
+        'emergency braking' in text_lower
+    )
     
-    # If explicitly rural, override urban detection
+    has_tpms = (
+        'tpms' in text_lower or 
+        'tire pressure' in text_lower or
+        'tyre pressure' in text_lower
+    )
+    
+    # ===== EXTRACT REGION =====
+    is_rural = any(word in text_lower for word in [
+        'rural', 'low-density', 'low density', 'countryside', 'village'
+    ])
+    
+    is_urban = any(word in text_lower for word in [
+        'urban', 'city', 'metropolitan', 'high-density', 'high density', 'downtown'
+    ])
+    
+    # Rural overrides urban if both detected
     if is_rural:
         is_urban = False
     
@@ -510,43 +560,7 @@ def extract_features(text: str) -> Dict:
         'has_tpms': has_tpms,
         'is_urban': is_urban
     }
-
-# def extract_features(text: str) -> Dict:
-#     """Extract features from natural language query"""
-#     text_lower = text.lower()
-    
-#     # Extract ages
-#     all_ages = re.findall(r'(\d+)[-\s]?(?:year[-\s]?old|yo|years)', text_lower)
-#     customer_age = int(all_ages[0]) if all_ages else 35
-#     vehicle_age = float(all_ages[1]) if len(all_ages) >= 2 else 5.0
-    
-#     # Extract subscription
-#     sub_match = re.search(r'(\d+)[-\s]?(?:month|mo)', text_lower)
-#     subscription = int(sub_match.group(1)) if sub_match else 6
-    
-#     # Extract airbags
-#     airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
-#     airbags = int(airbags_match.group(1)) if airbags_match else 4
-    
-#     # Extract safety features
-#     has_esc = 'esc' in text_lower and 'no esc' not in text_lower
-#     has_brake_assist = 'brake assist' in text_lower or 'brake-assist' in text_lower
-#     has_tpms = 'tpms' in text_lower
-    
-#     # Extract region context
-#     is_urban = any(word in text_lower for word in ['urban', 'city', 'metropolitan'])
-    
-#     return {
-#         'customer_age': customer_age,
-#         'vehicle_age': vehicle_age,
-#         'subscription_length': subscription,
-#         'airbags': airbags,
-#         'has_esc': has_esc,
-#         'has_brake_assist': has_brake_assist,
-#         'has_tpms': has_tpms,
-#         'is_urban': is_urban
-#     }
-
+ 
 def calculate_enhanced_risk_score(features: Dict) -> Dict:
     """Calculate risk using validated preprocessing weights from feature engineering"""
     weights = {
@@ -851,6 +865,8 @@ if st.button("🔍 Analyze Application", use_container_width=True, type="primary
         with st.spinner('🤖 AI is analyzing... Searching 58K+ policies and generating response...'):
             # Extract features
             features = extract_features(query)
+            with st.expander("🔍 Debug: Extracted Features", expanded=False):
+                st.json(features)
             
             # Calculate risk
             risk_analysis = calculate_enhanced_risk_score(features)
