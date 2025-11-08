@@ -451,26 +451,54 @@ def extract_features(text: str) -> Dict:
     """Extract features from natural language query"""
     text_lower = text.lower()
     
-    # Extract ages
-    all_ages = re.findall(r'(\d+)[-\s]?(?:year[-\s]?old|yo|years)', text_lower)
-    customer_age = int(all_ages[0]) if all_ages else 35
-    vehicle_age = float(all_ages[1]) if len(all_ages) >= 2 else 5.0
+    # Extract ages - IMPROVED PATTERNS
+    # Pattern 1: "age = 46" or "age: 46" or "age 46"
+    age_match = re.search(r'age\s*[=:]\s*(\d+)', text_lower)
+    if age_match:
+        customer_age = int(age_match.group(1))
+    else:
+        # Pattern 2: "46-year-old" or "46 years old" or "46yo"
+        age_match2 = re.search(r'(\d+)[-\s]?(?:year[-\s]?old|yo|years\s+old)', text_lower)
+        customer_age = int(age_match2.group(1)) if age_match2 else 35
     
-    # Extract subscription
-    sub_match = re.search(r'(\d+)[-\s]?(?:month|mo)', text_lower)
-    subscription = int(sub_match.group(1)) if sub_match else 6
+    # Extract vehicle age - IMPROVED
+    # Pattern 1: "3.0-year-old" or "3-year-old vehicle"
+    vehicle_age_match = re.search(r'(\d+\.?\d*)[-\s]?year[-\s]?old.*?(?:vehicle|car|petrol|diesel)', text_lower)
+    if vehicle_age_match:
+        vehicle_age = float(vehicle_age_match.group(1))
+    else:
+        # Pattern 2: Look for any decimal number before "year-old" that's NOT the driver age
+        all_ages = re.findall(r'(\d+\.?\d*)[-\s]?year[-\s]?old', text_lower)
+        if len(all_ages) >= 2:
+            vehicle_age = float(all_ages[1])
+        elif len(all_ages) == 1 and not age_match:
+            # Only one "year-old" found and no "age =" pattern, assume it's vehicle
+            vehicle_age = float(all_ages[0])
+        else:
+            vehicle_age = 5.0
+    
+    # Extract subscription - IMPROVED
+    # Pattern 1: "6.2-month subscription" or "6 month subscription"
+    sub_match = re.search(r'(\d+\.?\d*)[-\s]?(?:month|mo)(?:\s+subscription)?', text_lower)
+    subscription = float(sub_match.group(1)) if sub_match else 6
+    subscription = int(round(subscription))  # Round to nearest integer
     
     # Extract airbags
     airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
     airbags = int(airbags_match.group(1)) if airbags_match else 4
     
-    # Extract safety features
-    has_esc = 'esc' in text_lower and 'no esc' not in text_lower
+    # Extract safety features - IMPROVED
+    has_esc = ('esc' in text_lower or 'electronic stability' in text_lower) and 'no esc' not in text_lower
     has_brake_assist = 'brake assist' in text_lower or 'brake-assist' in text_lower
-    has_tpms = 'tpms' in text_lower
+    has_tpms = 'tpms' in text_lower or 'tire pressure' in text_lower
     
-    # Extract region context
-    is_urban = any(word in text_lower for word in ['urban', 'city', 'metropolitan'])
+    # Extract region context - IMPROVED
+    is_urban = any(word in text_lower for word in ['urban', 'city', 'metropolitan', 'high-density', 'high density'])
+    is_rural = any(word in text_lower for word in ['rural', 'low-density', 'low density', 'countryside'])
+    
+    # If explicitly rural, override urban detection
+    if is_rural:
+        is_urban = False
     
     return {
         'customer_age': customer_age,
@@ -482,6 +510,42 @@ def extract_features(text: str) -> Dict:
         'has_tpms': has_tpms,
         'is_urban': is_urban
     }
+
+# def extract_features(text: str) -> Dict:
+#     """Extract features from natural language query"""
+#     text_lower = text.lower()
+    
+#     # Extract ages
+#     all_ages = re.findall(r'(\d+)[-\s]?(?:year[-\s]?old|yo|years)', text_lower)
+#     customer_age = int(all_ages[0]) if all_ages else 35
+#     vehicle_age = float(all_ages[1]) if len(all_ages) >= 2 else 5.0
+    
+#     # Extract subscription
+#     sub_match = re.search(r'(\d+)[-\s]?(?:month|mo)', text_lower)
+#     subscription = int(sub_match.group(1)) if sub_match else 6
+    
+#     # Extract airbags
+#     airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
+#     airbags = int(airbags_match.group(1)) if airbags_match else 4
+    
+#     # Extract safety features
+#     has_esc = 'esc' in text_lower and 'no esc' not in text_lower
+#     has_brake_assist = 'brake assist' in text_lower or 'brake-assist' in text_lower
+#     has_tpms = 'tpms' in text_lower
+    
+#     # Extract region context
+#     is_urban = any(word in text_lower for word in ['urban', 'city', 'metropolitan'])
+    
+#     return {
+#         'customer_age': customer_age,
+#         'vehicle_age': vehicle_age,
+#         'subscription_length': subscription,
+#         'airbags': airbags,
+#         'has_esc': has_esc,
+#         'has_brake_assist': has_brake_assist,
+#         'has_tpms': has_tpms,
+#         'is_urban': is_urban
+#     }
 
 def calculate_enhanced_risk_score(features: Dict) -> Dict:
     """Calculate risk using validated preprocessing weights from feature engineering"""
@@ -744,12 +808,12 @@ with col2:
     mode_col1, mode_col2 = st.columns(2)
     with mode_col1:
         if st.button("🧠 Underwriter Mode", use_container_width=True, 
-                     type="primary" if st.session_state.mode == 'underwriter' else "secondary"):
+                    type="primary" if st.session_state.mode == 'underwriter' else "secondary"):
             st.session_state.mode = 'underwriter'
             st.rerun()
     with mode_col2:
         if st.button("🚗 My Car Check", use_container_width=True,
-                     type="primary" if st.session_state.mode == 'mycar' else "secondary"):
+                    type="primary" if st.session_state.mode == 'mycar' else "secondary"):
             st.session_state.mode = 'mycar'
             st.rerun()
 
