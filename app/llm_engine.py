@@ -109,7 +109,8 @@ class UnderwriteLLM:
         decision: Dict,
         features: Dict,
         evidence: Dict,
-        risk_analysis: Dict
+        risk_analysis: Dict,
+        mode: str = 'underwriter'
     ) -> str:
         """
         Generate a SINGLE concise paragraph explaining the underwriting decision
@@ -117,22 +118,31 @@ class UnderwriteLLM:
         """
         
         # Build context-rich prompt
-        prompt = self._build_prompt(decision, features, evidence, risk_analysis)
+        prompt = self._build_prompt(decision, features, evidence, risk_analysis, mode)
         
         # Check cache first
         cache_key = self._get_cache_key(prompt)
         cached = self._get_cached_response(cache_key)
         if cached:
+            print(f"✅ Using cached response")
             return cached
         
         # Generate response
         if self.model is None:
-            return self._fallback_response(decision, features, evidence, risk_analysis)
+            print(f"⚠️ No model loaded, using fallback for mode: {mode}")
+            return self._fallback_response(decision, features, evidence, risk_analysis, mode)
         
         try:
+            print(f"🤖 Calling LLM backend: {self.backend}")
             response = self._call_llm(prompt)
+            
+            if not response or len(response.strip()) == 0:
+                print(f"⚠️ Empty response from LLM, using fallback")
+                return self._fallback_response(decision, features, evidence, risk_analysis, mode)
+            
             # Clean up the response to ensure it's a single paragraph
             cleaned_response = self._clean_response(response)
+            print(f"✅ Generated response: {len(cleaned_response)} chars")
             
             # Cache the response
             self._cache_response(cache_key, cleaned_response)
@@ -140,15 +150,24 @@ class UnderwriteLLM:
             return cleaned_response
         except Exception as e:
             print(f"⚠️ LLM generation failed: {e}")
-            return self._fallback_response(decision, features, evidence, risk_analysis)
+            import traceback
+            traceback.print_exc()
+            return self._fallback_response(decision, features, evidence, risk_analysis, mode)
     
-    def _build_prompt(self, decision, features, evidence, risk_analysis):
-        """Build a detailed prompt for the LLM - requesting single paragraph"""
+    def _build_prompt(self, decision, features, evidence, risk_analysis, mode='underwriter'):
+        """Build prompt based on mode"""
+        
+        if mode == 'mycar':
+            voice = "You are a helpful insurance advisor speaking directly to a car owner. Use 'your car' and 'you' frequently. Be warm and personal."
+        else:
+            voice = "You are an insurance underwriter explaining a decision to your colleagues. Use 'the applicant' and 'we recommend'."
         
         claim_rate = evidence['claims'] / evidence['total'] * 100
         risk_pct = risk_analysis['overall'] * 100
         
-        prompt = f"""You are an expert insurance underwriter. Write ONE concise paragraph (4-6 sentences) explaining this underwriting decision.
+        prompt = f"""{voice}
+
+You are an expert insurance underwriter. Write ONE concise paragraph (4-6 sentences) explaining this underwriting decision.
 
 DECISION: {decision['tier']} ({decision['action']})
 CONFIDENCE: {decision['confidence']:.0f}%
@@ -183,22 +202,26 @@ Response:"""
     def _call_llm(self, prompt: str) -> str:
         """Call the appropriate LLM backend"""
         if self.backend == 'ollama':
-            response = requests.post(
-                "http://localhost:11434/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.4,
-                        "num_predict": 256,  # Reduced since we want single paragraph
-                        "top_p": 0.9
-                    }
-                },
-                timeout=30
-            )
-            data = response.json()
-            return data.get("response", "")
+            try:
+                response = requests.post(
+                    "http://localhost:11434/api/generate",
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.4,
+                            "num_predict": 256,
+                            "top_p": 0.9
+                        }
+                    },
+                    timeout=30
+                )
+                data = response.json()
+                return data.get("response", "")
+            except Exception as e:
+                print(f"⚠️ Ollama API call failed: {e}")
+                return ""  # Will trigger fallback
         
         elif self.backend == 'huggingface':
             model, tokenizer = self.model
@@ -236,7 +259,7 @@ Response:"""
         
         return response.strip()
     
-    def _fallback_response(self, decision, features, evidence, risk_analysis) -> str:
+    def _fallback_response(self, decision, features, evidence, risk_analysis, mode='underwriter') -> str:
         """High-quality single-paragraph template fallback"""
         
         tier = decision['tier']
@@ -248,15 +271,28 @@ Response:"""
         claim_rate = (claims / total * 100) if total > 0 else 0
         risk_pct = risk_analysis['overall'] * 100
         
-        templates = {
-            'APPROVE': f"After analyzing your application against our database of 58,000+ policies, I'm pleased to recommend standard approval for your coverage. As a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month subscription, your profile demonstrates strong low-risk characteristics with a calculated risk score of {risk_pct:.1f}%. Our analysis of {total} similar cases revealed only {claims} claims ({claim_rate:.1f}% claim rate), which is significantly below our industry baseline of 6.4%. You qualify for standard rates with no additional conditions, and your policy can be processed within 24-48 hours.",
+        if mode == 'mycar':
+            # PERSONALIZED TEMPLATES FOR MY CAR CHECK
+            templates = {
+                'APPROVE': f"Great news about your car! Your {v_age}-year-old vehicle with its {features['airbags']} airbags and {'excellent' if features['has_esc'] else 'basic'} safety features qualifies for standard insurance rates. At {age} years old with a {sub}-month policy, you're in a strong position—your profile shows only {risk_pct:.1f}% risk, and similar drivers filed claims just {claim_rate:.1f}% of the time (well below the 6.4% average). You can expect approval within 24-48 hours with no extra conditions or fees.",
             
-            'MONITOR': f"Thank you for your application—I can offer you coverage with some adjustments to ensure mutual protection. Your profile as a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month plan shows moderate risk characteristics, reflected in your {risk_pct:.1f}% risk score. When comparing against {total} similar policies in our database, we found {claims} resulted in claims ({claim_rate:.1f}% rate), which is slightly above our 6.4% baseline. Based on this analysis, I recommend approval with a 15-20% premium adjustment and quarterly monitoring during your first year; as you build a claims-free history, we can revisit these terms for better rates.",
+                'MONITOR': f"We can definitely insure your {v_age}-year-old car, though we'll need to add a 15-20% premium adjustment for the first year. Your profile shows moderate risk at {risk_pct:.1f}%—when we looked at {total} drivers similar to you, {claims} filed claims ({claim_rate:.1f}% rate). The good news? After you build a claims-free history over the next 12 months, we'll review your rates and likely reduce that premium. Your {'strong' if features['has_esc'] else 'adequate'} safety features help, and we're confident this will work out well.",
             
-            'CONDITIONAL': f"I appreciate your application and want to work with you, though your profile requires some conditions for approval. As a {age}-year-old with a {v_age}-year-old vehicle on a {sub}-month subscription, your risk profile scores at {risk_pct:.1f}%, placing you in our higher-risk category based on actuarial data. Our analysis of {total} similar cases revealed {claims} claims—a {claim_rate:.1f}% rate notably higher than our 6.4% industry average—which necessitates additional safeguards. I propose approval with a 30-40% premium loading, higher deductible ($1,500), and enhanced documentation requirements; after 12 months of claims-free driving, we'll review your policy for improved rates.",
+                'CONDITIONAL': f"Your {v_age}-year-old vehicle can be insured, but we need to be upfront about the conditions. Your profile shows elevated risk at {risk_pct:.1f}%—similar drivers in our database filed claims {claim_rate:.1f}% of the time, which is notably higher than typical. We can offer coverage with a 30-40% premium increase and a $1,500 deductible. Consider this a bridge policy: drive safely for 12 months, and we'll reassess for better terms. You might also explore adding more safety features to your car to improve your profile.",
             
-            'REJECT': f"Thank you for considering us for your insurance needs, though after thorough analysis, I must recommend we decline this application at this time. Your profile as a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month plan triggers multiple high-risk indicators in our underwriting system, resulting in a {risk_pct:.1f}% risk score. Our analysis of {total} similar policies found {claims} filed claims within their policy period—a {claim_rate:.1f}% rate that's {claim_rate/6.4:.1f}x our industry standard—which exceeds the exposure levels our risk models can responsibly accommodate. I encourage you to consider building insurance history with a specialized carrier, exploring vehicles with advanced safety features, or revisiting your application with us after establishing a longer driving record."
-        }
+                'REJECT': f"Unfortunately, we can't insure your {v_age}-year-old vehicle under our standard policies right now. Your profile shows {risk_pct:.1f}% risk, and when we analyzed {total} similar cases, {claims} resulted in claims—that's {claim_rate/6.4:.1f}x higher than what our pricing can support. This isn't personal—it's about matching risk with appropriate coverage. We recommend: (1) Consider a newer vehicle with better safety features, (2) Try a specialized high-risk insurer, or (3) Build insurance history elsewhere and reapply with us in 12-18 months."
+            }
+        else:
+            # UNDERWRITER MODE TEMPLATES - COMPANY VOICE
+            templates = {
+                'APPROVE': f"After analyzing this application against our database of 58,000+ policies, we're pleased to recommend standard approval for coverage. The profile shows a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month subscription, demonstrating strong low-risk characteristics with a calculated risk score of {risk_pct:.1f}%. Our analysis of {total} similar cases revealed only {claims} claims ({claim_rate:.1f}% claim rate), significantly below our industry baseline of 6.4%. This application qualifies for standard rates with no additional conditions, and the policy can be processed within 24-48 hours.",
+        
+                'MONITOR': f"We appreciate this application and can offer coverage with some adjustments to ensure mutual protection. The profile presents a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month plan, showing moderate risk characteristics reflected in the {risk_pct:.1f}% risk score. Comparing against {total} similar policies in our database, we found {claims} resulted in claims ({claim_rate:.1f}% rate), slightly above our 6.4% baseline. Based on this analysis, we recommend approval with a 15-20% premium adjustment and quarterly monitoring during the first year; as a claims-free history builds, we can revisit these terms for improved rates.",
+        
+                'CONDITIONAL': f"We value this application and want to find a path forward, though the profile requires certain conditions for approval. As a {age}-year-old with a {v_age}-year-old vehicle on a {sub}-month subscription, the risk profile scores at {risk_pct:.1f}%, placing it in our higher-risk category based on actuarial data. Our analysis of {total} similar cases revealed {claims} claims—a {claim_rate:.1f}% rate notably higher than our 6.4% industry average—necessitating additional safeguards. We propose approval with a 30-40% premium loading, higher deductible ($1,500), and enhanced documentation requirements; after 12 months of claims-free driving, we'll review the policy for improved rates.",
+        
+                'REJECT': f"We appreciate the interest in our coverage, though after thorough analysis, our underwriting team must decline this application at this time. The profile of a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month plan triggers multiple high-risk indicators in our system, resulting in a {risk_pct:.1f}% risk score. Our analysis of {total} similar policies found {claims} filed claims within their policy period—a {claim_rate:.1f}% rate that's {claim_rate/6.4:.1f}x our industry standard—exceeding the exposure levels our risk models can responsibly accommodate. We encourage considering building insurance history with a specialized carrier, exploring vehicles with advanced safety features, or revisiting the application after establishing a longer driving record."
+            }
         
         return templates.get(tier, templates['CONDITIONAL'])
     
@@ -286,15 +322,15 @@ Response:"""
             print(f"⚠️ Cache write failed: {e}")
     
     def _init_huggingface_api(self):
-       """Use HuggingFace Inference API (free tier available)"""
-       try:
+        """Use HuggingFace Inference API (free tier available)"""
+        try:
             import os
             api_key = os.getenv('HF_API_KEY')  # Set in Streamlit secrets
             if api_key:
                 return {'api_key': api_key, 'model': 'mistralai/Mistral-7B-Instruct-v0.2'}
-       except:
+        except:
             pass
-       return None
+        return None
 
 
 # Singleton instance

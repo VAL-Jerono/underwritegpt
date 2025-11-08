@@ -774,14 +774,15 @@ if len(st.session_state.messages) == 0:
 query = st.text_input(
     "💬 Describe the application" if st.session_state.mode == 'underwriter' else "🚗 Describe your car",
     placeholder="e.g., 35-year-old driver, 4-year-old sedan, 4 airbags, urban area, 6-month subscription",
-    key="query_input"
+    key="query_input",
+    value=st.session_state.get('current_query', '')  
+
 )
+# if 'current_query' in st.session_state:
+#     query = st.session_state.current_query
+#     del st.session_state.current_query
 
-if 'current_query' in st.session_state:
-    query = st.session_state.current_query
-    del st.session_state.current_query
-
-if st.button("🔍 Analyze Application", use_container_width=True, type="primary") or query:
+if st.button("🔍 Analyze Application", use_container_width=True, type="primary"): #or query:
     if query:
         with st.spinner('🤖 AI is analyzing... Searching 58K+ policies and generating response...'):
             # Extract features
@@ -798,7 +799,8 @@ if st.button("🔍 Analyze Application", use_container_width=True, type="primary
             
             # Generate LLM response (now returns single string)
             llm_response = llm_engine.generate_underwriting_response(
-                decision, features, decision['evidence'], risk_analysis
+                decision, features, decision['evidence'], risk_analysis,
+                mode=st.session_state.mode 
             )
             
             result = {
@@ -810,6 +812,7 @@ if st.button("🔍 Analyze Application", use_container_width=True, type="primary
             }
             
             st.session_state.messages.append({'query': query, 'result': result})
+            st.rerun() 
 
 # Display results
 if st.session_state.messages:
@@ -908,20 +911,29 @@ if st.session_state.messages:
             • Each bar shows: component risk × importance weight = final contribution
         </div>
         """, unsafe_allow_html=True)
-    
     with tab2:
         fig2 = create_evidence_chart(result['decision']['evidence'])
         st.plotly_chart(fig2, use_container_width=True)
-        
+    
         claim_rate = result['decision']['evidence']['claims'] / result['decision']['evidence']['total']
-        st.markdown(f"""
-        <div class="info-box">
+    
+        #THIS CONDITIONAL LOGIC:
+        if result['decision']['tier'] in ['APPROVE', 'MONITOR'] and claim_rate > 0.10:
+            interpretation = f"""
+            <strong>📖 Evidence Interpretation:</strong><br>
+            Out of {result['decision']['evidence']['total']} similar policies, {result['decision']['evidence']['claims']} filed claims ({claim_rate:.1%} rate).
+            While this exceeds our baseline of 6.4%, <strong>your application's strong safety features and favorable driver profile</strong> 
+            (risk score: {result['risk_analysis']['overall']:.1%}) support a positive decision. The feature-based assessment takes precedence over historical claims alone.
+            """
+        else:
+            interpretation = f"""
             <strong>📖 Evidence Interpretation:</strong><br>
             Out of {result['decision']['evidence']['total']} similar policies, {result['decision']['evidence']['claims']} filed claims ({claim_rate:.1%} rate).
             {'This exceeds' if claim_rate > 0.064 else 'This is below'} our industry baseline of 6.4%.
             {"<br><strong>⚠️ Higher risk than average.</strong>" if claim_rate > 0.064 else "<br><strong>✅ Lower risk than average.</strong>"}
-        </div>
-        """, unsafe_allow_html=True)
+            """
+    
+        st.markdown(f'<div class="info-box">{interpretation}</div>', unsafe_allow_html=True)
     
     # Application Details
     with st.expander("📋 Application Profile Details", expanded=False):
