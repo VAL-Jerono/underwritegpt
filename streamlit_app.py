@@ -450,68 +450,68 @@ def load_llm():
 # In streamlit_app.py, replace the extract_features function completely:
 
 def extract_features(text: str) -> Dict:
-    """Extract features from natural language query - ROBUST VERSION"""
+    """Extract features from natural language query - FIXED VERSION"""
     text_lower = text.lower()
     
     # ===== EXTRACT CUSTOMER AGE =====
     customer_age = 35  # default
     
-    # Try multiple patterns in order of specificity
-    patterns = [
-        r'age\s*[=:]\s*(\d+)',           # "age = 46" or "age: 46"
-        r'age\s+(\d+)',                  # "age 46"
-        r'\(age\s+(\d+)\)',              # "(age 46)"
-        r'driver.*?(\d+)[-\s]year',      # "driver 46-year" or "driver 46 year"
-        r'^.*?(\d+)[-\s]year[-\s]?old\s+driver',  # "46-year-old driver" at start
+    # CRITICAL: Match "X-year-old driver" patterns FIRST and MOST SPECIFICALLY
+    driver_patterns = [
+        r'(\d+)[-\s]year[-\s]old\s+driver',     # "42-year-old driver"
+        r'driver.*?(\d+)[-\s]years?\s+old',     # "driver 42 years old"
+        r'(\d+)[-\s]year[-\s]old.*?(?:operates|with|maintains)',  # "42-year-old operates..."
     ]
     
-    for pattern in patterns:
+    for pattern in driver_patterns:
         match = re.search(pattern, text_lower)
         if match:
             customer_age = int(match.group(1))
+            print(f"🔍 Extracted customer_age: {customer_age} from pattern: {pattern}")
             break
     
     # ===== EXTRACT VEHICLE AGE =====
     vehicle_age = 5.0  # default
     
-    # Look for vehicle age patterns
+    # CRITICAL: Match "X-year-old vehicle/car/sedan/suv" patterns
     vehicle_patterns = [
-        r'(\d+\.?\d*)[-\s]year[-\s]?old.*?(?:vehicle|car|sedan|suv|truck|petrol|diesel)',
-        r'operates\s+a\s+(\d+\.?\d*)[-\s]year',
-        r'with\s+a\s+(\d+\.?\d*)[-\s]year',
+        r'(\d+\.?\d*)[-\s]year[-\s]old\s+(?:sedan|car|vehicle|suv|truck|petrol|diesel)',
+        r'(?:sedan|car|vehicle|suv|truck)\s+.*?(\d+\.?\d*)[-\s]year[-\s]old',
+        r'operates\s+a\s+(\d+\.?\d*)[-\s]year[-\s]old',
+        r'with\s+a\s+(\d+\.?\d*)[-\s]year[-\s]old',
     ]
     
     for pattern in vehicle_patterns:
         match = re.search(pattern, text_lower)
         if match:
             vehicle_age = float(match.group(1))
+            print(f"🔍 Extracted vehicle_age: {vehicle_age} from pattern: {pattern}")
             break
     
-    # Fallback: if we found "3.0-year-old" but already have customer_age from "age 46", use it for vehicle
-    if vehicle_age == 5.0:  # still default
-        all_year_old = re.findall(r'(\d+\.?\d*)[-\s]year[-\s]?old', text_lower)
-        if len(all_year_old) > 0:
-            # Use the first decimal number if available, or second if we have two
-            for num in all_year_old:
-                num_float = float(num)
-                if num_float != customer_age:  # Don't use the customer age
-                    vehicle_age = num_float
-                    break
+    # Sanity check: driver age should be 18-100, vehicle age 0-30
+    if customer_age < 18 or customer_age > 100:
+        print(f"⚠️ WARNING: Suspicious customer_age {customer_age}, using default 35")
+        customer_age = 35
+    
+    if vehicle_age > 30:
+        print(f"⚠️ WARNING: Suspicious vehicle_age {vehicle_age}, using default 5.0")
+        vehicle_age = 5.0
     
     # ===== EXTRACT SUBSCRIPTION =====
     subscription = 6  # default
     
     sub_patterns = [
-        r'maintains\s+a\s+(\d+\.?\d*)[-\s]?month',
-        r'(\d+\.?\d*)[-\s]?month\s+subscription',
-        r'subscription.*?(\d+\.?\d*)[-\s]?month',
-        r'policy.*?(\d+\.?\d*)[-\s]?month',
+        r'(\d+)[-\s]?month\s+subscription',
+        r'subscription.*?(\d+)[-\s]?month',
+        r'maintains\s+a\s+(\d+)[-\s]?month',
+        r'policy.*?(\d+)[-\s]?month',
     ]
     
     for pattern in sub_patterns:
         match = re.search(pattern, text_lower)
         if match:
             subscription = int(round(float(match.group(1))))
+            print(f"🔍 Extracted subscription: {subscription} months")
             break
     
     # ===== EXTRACT AIRBAGS =====
@@ -550,7 +550,7 @@ def extract_features(text: str) -> Dict:
     if is_rural:
         is_urban = False
     
-    return {
+    result = {
         'customer_age': customer_age,
         'vehicle_age': vehicle_age,
         'subscription_length': subscription,
@@ -560,7 +560,11 @@ def extract_features(text: str) -> Dict:
         'has_tpms': has_tpms,
         'is_urban': is_urban
     }
- 
+    
+    # FINAL DEBUG OUTPUT
+    print(f"✅ Final extracted features: customer_age={customer_age}, vehicle_age={vehicle_age}, subscription={subscription}")
+    
+    return result
 def calculate_enhanced_risk_score(features: Dict) -> Dict:
     """Calculate risk using validated preprocessing weights from feature engineering"""
     weights = {
@@ -1042,8 +1046,8 @@ if st.session_state.messages:
     if st.button("🔄 Start New Assessment", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
+# In your streamlit_app.py, replace the sidebar LLM Backend section with:
 
-# Sidebar
 with st.sidebar:
     st.markdown("### 🎯 About UnderwriteGPT")
     
@@ -1086,14 +1090,37 @@ with st.sidebar:
     
     st.markdown("#### 🤖 LLM Backend")
     backend = llm_engine.backend
+    
+    # FIXED: Proper status checking
+    if backend == 'template' or llm_engine.model is None:
+        status = '⚠️ Using fallback templates'
+        status_color = '#f59e0b'
+    else:
+        status = f'✅ Active ({llm_engine.model})'
+        status_color = '#10b981'
+    
     st.markdown(f"""
-    **Current:** {backend.upper()}
+    **Current Backend:** {backend.upper()}
     
-    {'✅ Active' if llm_engine.model else '⚠️ Using fallback templates'}
-    """)
+    <span style="color: {status_color}; font-weight: 600;">{status}</span>
+    """, unsafe_allow_html=True)
     
-    if backend == 'ollama' and not llm_engine.model:
-        st.warning("Install Ollama from https://ollama.ai then run: `ollama pull mistral`")
+    # Show helpful info based on status
+    if backend == 'ollama':
+        if llm_engine.model:
+            st.success(f"🚀 Ollama is connected and using model: {llm_engine.model}")
+            
+            # Add speed warning for CPU inference
+            st.info("💡 **Speed tip:** Responses take 30-60 seconds on CPU. Consider:\n"
+                    "- Switching to `phi3:mini` for 2x faster responses\n"
+                    "- Using cached responses (instant)\n"
+                    "- Template mode (instant, no LLM)")
+        else:
+            st.warning("⚠️ Ollama not connected. Install from https://ollama.ai then run:\n\n"
+                        "`ollama pull mistral`")
+    elif backend == 'template':
+        st.info("Using pre-written templates. For AI-generated responses, install Ollama.")
+
 
 # Footer
 st.markdown("---")

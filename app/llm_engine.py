@@ -38,22 +38,8 @@ class UnderwriteLLM:
             print(f"⚠️ Unknown backend: {self.backend}, falling back to template mode")
             self.backend = 'template'
             return None
-    
-    def _init_ollama(self):
-        """Initialize Ollama (RECOMMENDED - Best balance of quality and speed)"""
-        try:
-            # Test if Ollama is running
-            response = requests.get('http://localhost:11434/api/tags', timeout=2)
-            if response.status_code == 200:
-                print("✅ Loading Ollama (Mistral-7B)...")
-                print("✅ Ollama initialized successfully!")
-                return 'mistral'  # Return model name
-            else:
-                raise Exception("Ollama not responding")
-        except Exception as e:
-            print(f"❌ Ollama initialization failed: {e}")
-            print("💡 Install Ollama from https://ollama.ai then run: ollama pull mistral")
-            return None
+        
+        
     def _init_ollama(self):
         """Initialize Ollama (RECOMMENDED - Best balance of quality and speed)"""
         try:
@@ -71,7 +57,16 @@ class UnderwriteLLM:
                 print(f"📋 Available models: {[m.get('name', 'unknown') for m in models]}")
             
                 # Priority order: mistral > zephyr > llama2 > first available
-                preferred_models = ['mistral', 'zephyr', 'llama2']
+                preferred_models = [
+                    'phi3:mini',      # Fast & good quality (recommended)
+                    'phi3',           # Also good
+                    'gemma:2b',       # Very fast
+                    'tinyllama',      # Fastest but lower quality
+                    'mistral',        # Slower but good quality
+                    'zephyr',         # Current model (slow on CPU)
+                    'llama2'          # Fallback
+                    ]
+
             
                 for preferred in preferred_models:
                     for model in models:
@@ -248,12 +243,12 @@ Response:"""
                         "stream": True, #False,
                         "options": {
                             "temperature": 0.4,
-                            "num_predict": 256,
+                            "num_predict": 128, # Down from 256,
                             "top_p": 0.9
                         }
                     },
                     stream=True, #Enable streaming on request side
-                    timeout=60 #INCREASED TIMEOUT
+                    timeout=None #INCREASED TIMEOUT
                 )
                 
                 # Check if request was successful
