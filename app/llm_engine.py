@@ -54,6 +54,42 @@ class UnderwriteLLM:
             print(f"❌ Ollama initialization failed: {e}")
             print("💡 Install Ollama from https://ollama.ai then run: ollama pull mistral")
             return None
+    def _init_ollama(self):
+        """Initialize Ollama (RECOMMENDED - Best balance of quality and speed)"""
+        try:
+            # Test if Ollama is running
+            response = requests.get('http://localhost:11434/api/tags', timeout=2)
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get('models', [])
+            
+                if not models:
+                    print("❌ No Ollama models found. Please run: ollama pull mistral")
+                    return None
+            
+                print(f"✅ Ollama is running")
+                print(f"📋 Available models: {[m.get('name', 'unknown') for m in models]}")
+            
+                # Priority order: mistral > zephyr > llama2 > first available
+                preferred_models = ['mistral', 'zephyr', 'llama2']
+            
+                for preferred in preferred_models:
+                    for model in models:
+                        model_name = model.get('name', '')
+                        if preferred in model_name.lower():
+                            print(f"✅ Using model: {model_name}")
+                            return model_name  # Return exact name like "zephyr:latest"
+            
+                # Fallback to first available model
+                first_model = models[0]['name']
+                print(f"⚠️ Using first available model: {first_model}")
+                return first_model
+            else:
+                raise Exception("Ollama not responding")
+        except Exception as e:
+            print(f"❌ Ollama initialization failed: {e}")
+            print("💡 Install Ollama from https://ollama.ai then run: ollama pull mistral")
+            return None
     
     def _init_huggingface(self):
         """Initialize HuggingFace local model (Requires setup)"""
@@ -203,26 +239,65 @@ Response:"""
         """Call the appropriate LLM backend"""
         if self.backend == 'ollama':
             try:
+                print(f"📡 Sending request to Ollama with model: {self.model}")
                 response = requests.post(
                     "http://localhost:11434/api/generate",
                     json={
                         "model": self.model,
                         "prompt": prompt,
-                        "stream": False,
+                        "stream": True, #False,
                         "options": {
                             "temperature": 0.4,
                             "num_predict": 256,
                             "top_p": 0.9
                         }
                     },
-                    timeout=30
+                    stream=True, #Enable streaming on request side
+                    timeout=60 #INCREASED TIMEOUT
                 )
-                data = response.json()
-                return data.get("response", "")
+                
+                # Check if request was successful
+                if response.status_code != 200:
+                    print(f"⚠️ Ollama returned status {response.status_code}")
+                    return ""
+                
+                # Collect the streamed response
+                full_response = ""
+                chunk_count = 0
+                
+                print("📥 Receiving streaming response...")
+                for line in response.iter_lines(decode_unicode=True):
+                    if line:
+                        try:
+                            json_response = json.loads(line)
+                            chunk_count += 1
+
+                            # Print progress every 10 chunks
+                            if chunk_count % 10 == 0:
+                                print(f"  ... received {chunk_count} chunks")
+                                
+                            if "response" in json_response:
+                                full_response += json_response["response"]
+                                
+                            if json_response.get("done", False):
+                                print(f"✅ Streaming complete! Received {chunk_count} chunks, {len(full_response)} characters")
+                                break
+                        except json.JSONDecodeError as e:
+                            print(f"⚠️ Failed to parse JSON: {line[:100]}")
+                            continue
+                    
+                if not full_response:
+                    print("⚠️ No response text received from Ollama")
+            
+                return full_response.strip()
+            
+            except requests.exceptions.Timeout:
+                print(f"⚠️ Ollama API call timed out after 60 seconds")
+                return ""
             except Exception as e:
                 print(f"⚠️ Ollama API call failed: {e}")
-                return ""  # Will trigger fallback
-        
+                return ""
+                
         elif self.backend == 'huggingface':
             model, tokenizer = self.model
             input_ids = tokenizer(prompt, return_tensors="pt").input_ids
