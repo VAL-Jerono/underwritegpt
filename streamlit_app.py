@@ -1134,10 +1134,10 @@ with st.sidebar:
                         "- For faster responses: `ollama pull phi3:mini`")
         else:
             st.warning("⚠️ Ollama not connected. Install from https://ollama.ai then run:\n\n"
-                       "`ollama pull phi3:mini`")
+                        "`ollama pull phi3:mini`")
     elif backend == 'template':
         st.info("📝 Using pre-written templates (instant responses)\n\n"
-               "For AI-generated responses, install Ollama.")
+                "For AI-generated responses, install Ollama.")
 
 
 # Footer
