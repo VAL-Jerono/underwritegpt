@@ -1092,18 +1092,19 @@ with st.sidebar:
     st.markdown("#### 🤖 LLM Backend")
     backend = llm_engine.backend
     
-    # DEBUG: Let's see what's actually loaded
-    st.write(f"DEBUG - Backend: {backend}")
-    st.write(f"DEBUG - Model: {llm_engine.model}")
-    st.write(f"DEBUG - Model type: {type(llm_engine.model)}")
+    # # DEBUG: Let's see what's actually loaded
+    # st.write(f"DEBUG - Backend: {backend}")
+    # st.write(f"DEBUG - Model: {llm_engine.model}")
+    # st.write(f"DEBUG - Model type: {type(llm_engine.model)}")
 
-    # FIXED: Proper status checking
-    if backend == 'template' or llm_engine.model is None:
-        status = '⚠️ Using fallback templates'
-        status_color = '#f59e0b'
-    else:
-        status = f'✅ Active ({llm_engine.model})'
-        status_color = '#10b981'
+    # # FIXED: Proper status checking
+    # if backend == 'template' or llm_engine.model is None:
+    #     status = '⚠️ Using fallback templates'
+    #     status_color = '#f59e0b'
+    # else:
+    #     status = f'✅ Active ({llm_engine.model})'
+    #     status_color = '#10b981'
+        
     # FIXED: Proper status checking
     
     if backend == 'template' or llm_engine.model is None:
