@@ -1086,6 +1086,7 @@ with st.sidebar:
     Risk exceeds acceptable thresholds
     """)
     
+    
     st.markdown("---")
     
     st.markdown("#### 🤖 LLM Backend")
@@ -1110,16 +1111,33 @@ with st.sidebar:
         if llm_engine.model:
             st.success(f"🚀 Ollama is connected and using model: {llm_engine.model}")
             
-            # Add speed warning for CPU inference
-            st.info("💡 **Speed tip:** Responses take 30-60 seconds on CPU. Consider:\n"
-                    "- Switching to `phi3:mini` for 2x faster responses\n"
-                    "- Using cached responses (instant)\n"
-                    "- Template mode (instant, no LLM)")
+            # Smart speed tips based on current model
+            model_lower = llm_engine.model.lower()
+            
+            if 'phi3' in model_lower or 'gemma' in model_lower or 'tinyllama' in model_lower:
+                # Already using a fast model
+                st.info("💡 **Speed tips:**\n"
+                        "- First query: ~15-30 sec (generating)\n"
+                        "- Repeat queries: <1 sec (cached!)\n"
+                        "- Template mode: instant (no AI)")
+            elif 'zephyr' in model_lower or 'mistral' in model_lower or 'llama2' in model_lower:
+                # Using a slower model, suggest faster alternatives
+                st.info("💡 **Speed tip:** Responses take 30-60 seconds. Speed up:\n"
+                        "- Run `ollama pull phi3:mini` for 2x faster\n"
+                        "- Use cached responses (instant)\n"
+                        "- Switch to template mode (instant)")
+            else:
+                # Unknown model
+                st.info("💡 **Performance:**\n"
+                        "- First query: varies by model\n"
+                        "- Cached queries: <1 sec\n"
+                        "- For faster responses: `ollama pull phi3:mini`")
         else:
             st.warning("⚠️ Ollama not connected. Install from https://ollama.ai then run:\n\n"
-                        "`ollama pull mistral`")
+                       "`ollama pull phi3:mini`")
     elif backend == 'template':
-        st.info("Using pre-written templates. For AI-generated responses, install Ollama.")
+        st.info("📝 Using pre-written templates (instant responses)\n\n"
+               "For AI-generated responses, install Ollama.")
 
 
 # Footer

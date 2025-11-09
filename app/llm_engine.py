@@ -38,8 +38,7 @@ class UnderwriteLLM:
             print(f"⚠️ Unknown backend: {self.backend}, falling back to template mode")
             self.backend = 'template'
             return None
-        
-        
+            
     def _init_ollama(self):
         """Initialize Ollama (RECOMMENDED - Best balance of quality and speed)"""
         try:
@@ -58,15 +57,14 @@ class UnderwriteLLM:
             
                 # Priority order: mistral > zephyr > llama2 > first available
                 preferred_models = [
+                    'zephyr',         # Current model (slow on CPU)
                     'phi3:mini',      # Fast & good quality (recommended)
                     'phi3',           # Also good
                     'gemma:2b',       # Very fast
                     'tinyllama',      # Fastest but lower quality
                     'mistral',        # Slower but good quality
-                    'zephyr',         # Current model (slow on CPU)
                     'llama2'          # Fallback
                     ]
-
             
                 for preferred in preferred_models:
                     for model in models:
@@ -243,12 +241,14 @@ Response:"""
                         "stream": True, #False,
                         "options": {
                             "temperature": 0.4,
-                            "num_predict": 128, # Down from 256,
-                            "top_p": 0.9
+                            "num_predict": 200,  # Increased to avoid cutoffs
+                            "top_p": 0.9,
+                            "num_ctx": 2048,
+                            "stop": ["\n\n", "---"]  # Stop at double newline or separator
                         }
                     },
                     stream=True, #Enable streaming on request side
-                    timeout=None #INCREASED TIMEOUT
+                    timeout=(5, None)  # 5 sec connection timeout, no read timeout
                 )
                 
                 # Check if request was successful
@@ -261,25 +261,34 @@ Response:"""
                 chunk_count = 0
                 
                 print("📥 Receiving streaming response...")
-                for line in response.iter_lines(decode_unicode=True):
-                    if line:
-                        try:
-                            json_response = json.loads(line)
-                            chunk_count += 1
+                
+                try:
+                    for line in response.iter_lines(decode_unicode=True):
+                        if line:
+                            try:
+                                json_response = json.loads(line)
+                                chunk_count += 1
 
-                            # Print progress every 10 chunks
-                            if chunk_count % 10 == 0:
-                                print(f"  ... received {chunk_count} chunks")
+                                # Print progress every 10 chunks
+                                if chunk_count % 10 == 0:
+                                    print(f"  ... received {chunk_count} chunks")
                                 
-                            if "response" in json_response:
-                                full_response += json_response["response"]
+                                if "response" in json_response:
+                                    full_response += json_response["response"]
                                 
-                            if json_response.get("done", False):
-                                print(f"✅ Streaming complete! Received {chunk_count} chunks, {len(full_response)} characters")
-                                break
-                        except json.JSONDecodeError as e:
-                            print(f"⚠️ Failed to parse JSON: {line[:100]}")
-                            continue
+                                if json_response.get("done", False):
+                                    print(f"✅ Streaming complete! Received {chunk_count} chunks, {len(full_response)} characters")
+                                    break
+                            except json.JSONDecodeError as e:
+                                print(f"⚠️ Failed to parse JSON: {line[:100]}")
+                                continue
+                
+                except Exception as stream_error:
+                    print(f"⚠️ Streaming error: {stream_error}")
+                    if full_response:
+                        print(f"⚠️ Partial response received ({len(full_response)} chars), using it anyway")
+                        return full_response.strip()
+                    return ""
                     
                 if not full_response:
                     print("⚠️ No response text received from Ollama")
@@ -287,12 +296,17 @@ Response:"""
                 return full_response.strip()
             
             except requests.exceptions.Timeout:
-                print(f"⚠️ Ollama API call timed out after 60 seconds")
+                print(f"⚠️ Ollama connection timeout (server not responding)")
+                return ""
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ Ollama API request failed: {e}")
                 return ""
             except Exception as e:
-                print(f"⚠️ Ollama API call failed: {e}")
+                print(f"⚠️ Unexpected error in Ollama call: {e}")
+                import traceback
+                traceback.print_exc()
                 return ""
-                
+            
         elif self.backend == 'huggingface':
             model, tokenizer = self.model
             input_ids = tokenizer(prompt, return_tensors="pt").input_ids
