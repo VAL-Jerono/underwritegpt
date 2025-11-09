@@ -1146,8 +1146,14 @@ with st.sidebar:
                         "- Cached queries: <1 sec\n"
                         "- For faster responses: `ollama pull phi3:mini`")
         else:
-            st.warning("⚠️ Ollama not connected. Install from https://ollama.ai then run:\n\n"
-                        "`ollama pull phi3:mini`")
+            # Deployment scenario - Ollama not available
+            st.info("📝 **Cloud Deployment Mode**\n\n"
+                    "Using intelligent template responses for instant results. "
+                    "AI-generated responses available when running locally with Ollama installed.\n\n"
+                    "To use AI locally:\n"
+                    "1. Install Ollama from https://ollama.ai\n"
+                    "2. Run: `ollama pull phi3:mini`\n"
+                    "3. Start app with `./run.sh`")
     elif backend == 'template':
         st.info("📝 Using pre-written templates (instant responses)\n\n"
                 "For AI-generated responses, install Ollama.")
