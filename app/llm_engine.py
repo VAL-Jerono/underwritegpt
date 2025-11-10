@@ -293,6 +293,7 @@ Response:"""
         
         return ""
     
+    
     def _clean_response(self, response: str) -> str:
         """Clean up LLM response to ensure it's a single paragraph"""
         response = response.replace('**', '')
@@ -305,10 +306,16 @@ Response:"""
         
         return response.strip()
     
+    
+    """
+    Template responses that ONLY use information provided by the client
+    Honest about what's known vs assumed
+    """
+
     def _fallback_response(self, decision, features, evidence, risk_analysis, mode='underwriter') -> str:
         """
-        FIXED: Dynamic template fallback that uses ACTUAL client details
-        No more hardcoded values!
+        Dynamic template fallback that ONLY uses provided client details
+        Honest about assumptions when features aren't specified
         """
         
         tier = decision['tier']
@@ -319,118 +326,170 @@ Response:"""
         total = evidence['total']
         claim_rate = (claims / total * 100) if total > 0 else 0
         risk_pct = risk_analysis['overall'] * 100
-        airbags = features['airbags']
-        has_esc = features['has_esc']
-        is_urban = features['is_urban']
         
-        # Build safety description
-        safety_desc = f"{airbags} airbag{'s' if airbags != 1 else ''}"
-        if has_esc:
-            safety_desc += " with ESC"
+        # Check what was actually provided
+        age_provided = features.get('customer_age_provided', False)
+        v_age_provided = features.get('vehicle_age_provided', False)
+        sub_provided = features.get('subscription_provided', False)
+        airbags_provided = features.get('airbags_provided', False)
+        esc_provided = features.get('esc_provided', False)
+        region_provided = features.get('region_provided', False)
+        
+        # Build descriptions based on what was provided
+        driver_desc = f"{age}-year-old driver" if age_provided else "driver"
+        
+        # Vehicle description
+        vehicle_parts = []
+        if v_age_provided:
+            vehicle_parts.append(f"{v_age:.0f}-year-old vehicle" if v_age >= 1 else "new vehicle")
         else:
-            safety_desc += " without ESC"
+            vehicle_parts.append("vehicle")
         
-        location_desc = "urban area" if is_urban else "rural area"
+        # Safety features (only mention if provided)
+        safety_parts = []
+        if airbags_provided:
+            airbags = features['airbags']
+            safety_parts.append(f"{airbags} airbag{'s' if airbags != 1 else ''}")
+        if esc_provided:
+            has_esc = features['has_esc']
+            safety_parts.append("with ESC" if has_esc else "without ESC")
+        
+        if safety_parts:
+            vehicle_desc = f"{vehicle_parts[0]} ({', '.join(safety_parts)})"
+        else:
+            vehicle_desc = vehicle_parts[0]
+        
+        # Subscription description
+        if sub_provided:
+            sub_desc = f"{sub}-month subscription"
+        else:
+            sub_desc = "policy" 
+            # Note: We'll mention this is unspecified in the response
+        
+        # Location description
+        if region_provided:
+            is_urban = features['is_urban']
+            location_desc = "urban area" if is_urban else "rural area"
+            location_phrase = f" in a {location_desc}"
+        else:
+            location_phrase = ""
         
         # Calculate multiplier vs baseline
         baseline_rate = 6.4
         multiplier = claim_rate / baseline_rate if baseline_rate > 0 else 1
         
+        # Build "missing info" note if critical features are unspecified
+        missing_features = []
+        if not sub_provided:
+            missing_features.append("subscription length")
+        if not airbags_provided:
+            missing_features.append("airbag count")
+        if not esc_provided:
+            missing_features.append("ESC status")
+        
+        missing_note = ""
+        if missing_features and tier in ['MONITOR', 'CONDITIONAL', 'REJECT']:
+            missing_note = f" Note: Our analysis assumes standard features for {', '.join(missing_features)} as these weren't specified—providing complete details could improve your assessment."
+        
         if mode == 'mycar':
             # PERSONALIZED TEMPLATES FOR MY CAR CHECK
             templates = {
                 'APPROVE': (
-                    f"Great news about your car! Your {v_age:.1f}-year-old vehicle with {safety_desc} "
-                    f"qualifies for standard insurance rates. At {age} years old with a {sub}-month policy "
-                    f"in a {location_desc}, you're in a strong position—your profile shows {risk_pct:.1f}% risk, "
+                    f"Great news! Your {vehicle_desc} qualifies for standard insurance rates. "
+                    f"{'At ' + str(age) + ' years old' if age_provided else 'Based on your profile'} "
+                    f"{'with a ' + sub_desc if sub_provided else ''}{location_phrase}, "
+                    f"you're in a strong position—your profile shows {risk_pct:.1f}% risk, "
                     f"and similar drivers filed claims just {claim_rate:.1f}% of the time "
                     f"({'well below' if claim_rate < baseline_rate else 'near'} the {baseline_rate}% average). "
-                    f"You can expect approval within 24-48 hours with no extra conditions or fees."
+                    f"You can expect approval within 24-48 hours with no extra conditions or fees.{missing_note}"
                 ),
                 
                 'MONITOR': (
-                    f"We can definitely insure your {v_age:.1f}-year-old car with {safety_desc}, "
-                    f"though we'll need to add a 15-20% premium adjustment for the first year. "
-                    f"Your profile shows moderate risk at {risk_pct:.1f}%—when we looked at {total} drivers "
-                    f"similar to you (age {age}, {sub}-month subscription, {location_desc}), {claims} filed claims "
-                    f"({claim_rate:.1f}% rate). The good news? After you build a claims-free history over the next "
-                    f"12 months, we'll review your rates and likely reduce that premium. "
-                    f"Your {'strong' if has_esc else 'adequate'} safety features help, and we're confident this will work out well."
+                    f"We can insure your {vehicle_desc}, though we'll need to add a 15-20% premium adjustment. "
+                    f"{'As a ' + driver_desc if age_provided else 'Your profile'} "
+                    f"{'with a ' + sub_desc if sub_provided else ''}{location_phrase}, "
+                    f"your risk assessment shows {risk_pct:.1f}%. When we analyzed {total} similar profiles, "
+                    f"{claims} filed claims ({claim_rate:.1f}% rate). "
+                    f"The good news? After you build a claims-free history over the next 12 months, "
+                    f"we'll review your rates and likely reduce that premium. "
+                    f"{'Your safety features help' if airbags_provided or esc_provided else 'Adding safety features like ESC could help'}, "
+                    f"and we're confident this will work out well.{missing_note}"
                 ),
                 
                 'CONDITIONAL': (
-                    f"Your {v_age:.1f}-year-old vehicle with {safety_desc} can be insured, "
-                    f"but we need to be upfront about the conditions. As a {age}-year-old driver with a "
-                    f"{sub}-month subscription in a {location_desc}, your profile shows elevated risk at {risk_pct:.1f}%—"
-                    f"similar drivers in our database filed claims {claim_rate:.1f}% of the time, which is "
-                    f"{multiplier:.1f}x higher than typical. We can offer coverage with a 30-40% premium increase "
-                    f"and a $1,500 deductible. Consider this a bridge policy: drive safely for 12 months, "
-                    f"and we'll reassess for better terms. "
-                    f"{'Adding ESC or other safety features would significantly improve your profile.' if not has_esc else ''}"
+                    f"Your {vehicle_desc} can be insured, but we need to be upfront about the conditions. "
+                    f"{'As a ' + driver_desc if age_provided else 'Based on your profile'} "
+                    f"{'with a ' + sub_desc if sub_provided else ''}{location_phrase}, "
+                    f"your risk assessment shows {risk_pct:.1f}%. Similar drivers in our database filed claims "
+                    f"{claim_rate:.1f}% of the time, which is {multiplier:.1f}x higher than typical. "
+                    f"We can offer coverage with a 30-40% premium increase and a higher deductible. "
+                    f"Consider this a bridge policy: drive safely for 12 months, and we'll reassess for better terms. "
+                    f"{('Adding ESC could significantly improve your profile. ' if esc_provided and not features['has_esc'] else '')}"
+                    f"{missing_note}"
                 ),
                 
                 'REJECT': (
-                    f"Unfortunately, we can't insure your {v_age:.1f}-year-old vehicle with {safety_desc} "
-                    f"under our standard policies right now. As a {age}-year-old driver with a {sub}-month subscription "
-                    f"in a {location_desc}, your profile shows {risk_pct:.1f}% risk. When we analyzed {total} similar cases, "
-                    f"{claims} resulted in claims—that's {claim_rate:.1f}%, or {multiplier:.1f}x higher than what our "
-                    f"pricing can support. This isn't personal—it's about matching risk with appropriate coverage. "
-                    f"We recommend: (1) Consider {'a newer vehicle with better safety features' if v_age > 5 else 'adding ESC and other safety features'}, "
+                    f"Unfortunately, we can't insure your {vehicle_desc} under our standard policies right now. "
+                    f"{'As a ' + driver_desc if age_provided else 'Based on your profile'} "
+                    f"{'with a ' + sub_desc if sub_provided else ''}{location_phrase}, "
+                    f"your risk assessment shows {risk_pct:.1f}%. When we analyzed {total} similar cases, "
+                    f"{claims} resulted in claims—that's {claim_rate:.1f}%, or {multiplier:.1f}x higher than "
+                    f"what our pricing can support. This isn't personal—it's about matching risk with appropriate coverage. "
+                    f"We recommend: (1) "
+                    f"{'Consider a newer vehicle with better safety features' if v_age_provided and v_age > 5 else 'Add ESC and other safety features'}, "
                     f"(2) Try a specialized high-risk insurer, or (3) Build insurance history elsewhere and reapply in 12-18 months."
+                    f"{missing_note}"
                 )
             }
         else:
             # UNDERWRITER MODE TEMPLATES - COMPANY VOICE
             templates = {
                 'APPROVE': (
-                    f"After analyzing this application against our database of 58,000+ policies, we're pleased to "
-                    f"recommend standard approval for coverage. The profile shows a {age}-year-old driver with a "
-                    f"{v_age:.1f}-year-old vehicle ({safety_desc}) on a {sub}-month subscription in a {location_desc}, "
+                    f"After analyzing this application against our database of 58,000+ policies, we recommend "
+                    f"standard approval for coverage. The profile presents a {driver_desc} with a {vehicle_desc} "
+                    f"{'on a ' + sub_desc if sub_provided else ''}{location_phrase}, "
                     f"demonstrating strong low-risk characteristics with a calculated risk score of {risk_pct:.1f}%. "
                     f"Our analysis of {total} similar cases revealed only {claims} claims ({claim_rate:.1f}% claim rate), "
                     f"{'significantly below' if claim_rate < baseline_rate else 'aligned with'} our industry baseline of {baseline_rate}%. "
-                    f"This application qualifies for standard rates with no additional conditions, and the policy can be "
-                    f"processed within 24-48 hours."
+                    f"This application qualifies for standard rates with no additional conditions.{missing_note}"
                 ),
                 
                 'MONITOR': (
-                    f"We appreciate this application and can offer coverage with some adjustments to ensure mutual protection. "
-                    f"The profile presents a {age}-year-old driver with a {v_age:.1f}-year-old vehicle ({safety_desc}) "
-                    f"on a {sub}-month plan in a {location_desc}, showing moderate risk characteristics reflected in the "
-                    f"{risk_pct:.1f}% risk score. Comparing against {total} similar policies in our database, we found "
-                    f"{claims} resulted in claims ({claim_rate:.1f}% rate), {'slightly above' if multiplier > 1 else 'near'} "
-                    f"our {baseline_rate}% baseline. Based on this analysis, we recommend approval with a 15-20% premium "
-                    f"adjustment and quarterly monitoring during the first year; as a claims-free history builds, we can "
-                    f"revisit these terms for improved rates."
+                    f"We can offer coverage with some adjustments to ensure mutual protection. "
+                    f"The profile presents a {driver_desc} with a {vehicle_desc} "
+                    f"{'on a ' + sub_desc if sub_provided else ''}{location_phrase}, "
+                    f"showing moderate risk characteristics reflected in the {risk_pct:.1f}% risk score. "
+                    f"Comparing against {total} similar policies, we found {claims} resulted in claims ({claim_rate:.1f}% rate), "
+                    f"{'slightly above' if multiplier > 1 else 'near'} our {baseline_rate}% baseline. "
+                    f"We recommend approval with a 15-20% premium adjustment and quarterly monitoring during the first year; "
+                    f"as a claims-free history builds, we can revisit these terms for improved rates.{missing_note}"
                 ),
                 
                 'CONDITIONAL': (
-                    f"We value this application and want to find a path forward, though the profile requires certain "
-                    f"conditions for approval. As a {age}-year-old driver with a {v_age:.1f}-year-old vehicle "
-                    f"({safety_desc}) on a {sub}-month subscription in a {location_desc}, the risk profile scores at "
-                    f"{risk_pct:.1f}%, placing it in our higher-risk category based on actuarial data. Our analysis of "
-                    f"{total} similar cases revealed {claims} claims—a {claim_rate:.1f}% rate notably "
-                    f"{'higher' if multiplier > 1.5 else 'elevated'} compared to our {baseline_rate}% industry average—"
-                    f"necessitating additional safeguards. We propose approval with a 30-40% premium loading, higher "
-                    f"deductible ($1,500), and enhanced documentation requirements; after 12 months of claims-free driving, "
-                    f"we'll review the policy for improved rates."
+                    f"We want to find a path forward, though this profile requires certain conditions for approval. "
+                    f"The application presents a {driver_desc} with a {vehicle_desc} "
+                    f"{'on a ' + sub_desc if sub_provided else ''}{location_phrase}, "
+                    f"with a risk profile scoring at {risk_pct:.1f}%, placing it in our higher-risk category. "
+                    f"Our analysis of {total} similar cases revealed {claims} claims—a {claim_rate:.1f}% rate "
+                    f"{'notably higher' if multiplier > 1.5 else 'elevated'} compared to our {baseline_rate}% industry average. "
+                    f"We propose approval with a 30-40% premium loading and enhanced risk management terms; "
+                    f"after 12 months of claims-free driving, we'll review for improved rates.{missing_note}"
                 ),
                 
                 'REJECT': (
-                    f"We appreciate the interest in our coverage, though after thorough analysis, our underwriting team "
-                    f"must decline this application at this time. The profile of a {age}-year-old driver with a "
-                    f"{v_age:.1f}-year-old vehicle ({safety_desc}) on a {sub}-month plan in a {location_desc} triggers "
-                    f"multiple high-risk indicators in our system, resulting in a {risk_pct:.1f}% risk score. Our analysis "
-                    f"of {total} similar policies found {claims} filed claims within their policy period—a {claim_rate:.1f}% "
-                    f"rate that's {multiplier:.1f}x our industry standard—exceeding the exposure levels our risk models can "
-                    f"responsibly accommodate. We encourage considering building insurance history with a specialized carrier, "
-                    f"exploring vehicles with advanced safety features{'(particularly ESC)' if not has_esc else ''}, or "
-                    f"revisiting the application after establishing a longer driving record."
+                    f"After thorough analysis, our underwriting team must decline this application at this time. "
+                    f"The profile of a {driver_desc} with a {vehicle_desc} "
+                    f"{'on a ' + sub_desc if sub_provided else ''}{location_phrase} "
+                    f"triggers multiple high-risk indicators, resulting in a {risk_pct:.1f}% risk score. "
+                    f"Our analysis of {total} similar policies found {claims} filed claims—a {claim_rate:.1f}% rate "
+                    f"that's {multiplier:.1f}x our industry standard—exceeding the exposure levels our risk models can "
+                    f"responsibly accommodate. We encourage building insurance history with a specialized carrier"
+                    f"{', exploring vehicles with advanced safety features' if not (esc_provided and features['has_esc']) else ''}, "
+                    f"or revisiting the application after establishing a longer driving record.{missing_note}"
                 )
             }
         
         return templates.get(tier, templates['CONDITIONAL'])
-    
     def _get_cache_key(self, prompt: str) -> str:
         """Generate cache key from prompt"""
         import hashlib

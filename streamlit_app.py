@@ -449,122 +449,341 @@ def load_llm():
 
 # In streamlit_app.py, replace the extract_features function completely:
 
+# def extract_features(text: str) -> Dict:
+#     """Extract features from natural language query - FIXED VERSION"""
+#     text_lower = text.lower()
+    
+#     # ===== EXTRACT CUSTOMER AGE =====
+#     customer_age = 35  # default
+    
+#     # CRITICAL: Match "X-year-old driver" patterns FIRST and MOST SPECIFICALLY
+#     driver_patterns = [
+#         r'(\d+)[-\s]year[-\s]old\s+driver',     # "42-year-old driver"
+#         r'driver.*?(\d+)[-\s]years?\s+old',     # "driver 42 years old"
+#         r'(\d+)[-\s]year[-\s]old.*?(?:operates|with|maintains)',  # "42-year-old operates..."
+#     ]
+    
+#     for pattern in driver_patterns:
+#         match = re.search(pattern, text_lower)
+#         if match:
+#             customer_age = int(match.group(1))
+#             print(f"🔍 Extracted customer_age: {customer_age} from pattern: {pattern}")
+#             break
+    
+#     # ===== EXTRACT VEHICLE AGE =====
+#     vehicle_age = 5.0  # default
+    
+#     # CRITICAL: Match "X-year-old vehicle/car/sedan/suv" patterns
+#     vehicle_patterns = [
+#         r'(\d+\.?\d*)[-\s]year[-\s]old\s+(?:sedan|car|vehicle|suv|truck|petrol|diesel)',
+#         r'(?:sedan|car|vehicle|suv|truck)\s+.*?(\d+\.?\d*)[-\s]year[-\s]old',
+#         r'operates\s+a\s+(\d+\.?\d*)[-\s]year[-\s]old',
+#         r'with\s+a\s+(\d+\.?\d*)[-\s]year[-\s]old',
+#     ]
+    
+#     for pattern in vehicle_patterns:
+#         match = re.search(pattern, text_lower)
+#         if match:
+#             vehicle_age = float(match.group(1))
+#             print(f"🔍 Extracted vehicle_age: {vehicle_age} from pattern: {pattern}")
+#             break
+    
+#     # Sanity check: driver age should be 18-100, vehicle age 0-30
+#     if customer_age < 18 or customer_age > 100:
+#         print(f"⚠️ WARNING: Suspicious customer_age {customer_age}, using default 35")
+#         customer_age = 35
+    
+#     if vehicle_age > 30:
+#         print(f"⚠️ WARNING: Suspicious vehicle_age {vehicle_age}, using default 5.0")
+#         vehicle_age = 5.0
+    
+#     # ===== EXTRACT SUBSCRIPTION =====
+#     subscription = 6  # default
+    
+#     sub_patterns = [
+#         r'(\d+)[-\s]?month\s+subscription',
+#         r'subscription.*?(\d+)[-\s]?month',
+#         r'maintains\s+a\s+(\d+)[-\s]?month',
+#         r'policy.*?(\d+)[-\s]?month',
+#     ]
+    
+#     for pattern in sub_patterns:
+#         match = re.search(pattern, text_lower)
+#         if match:
+#             subscription = int(round(float(match.group(1))))
+#             print(f"🔍 Extracted subscription: {subscription} months")
+#             break
+    
+#     # ===== EXTRACT AIRBAGS =====
+#     airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
+#     airbags = int(airbags_match.group(1)) if airbags_match else 4
+    
+#     # ===== EXTRACT SAFETY FEATURES =====
+#     has_esc = (
+#         'esc' in text_lower or 
+#         'electronic stability' in text_lower or
+#         'stability control' in text_lower
+#     ) and 'no esc' not in text_lower and 'without esc' not in text_lower
+    
+#     has_brake_assist = (
+#         'brake assist' in text_lower or 
+#         'brake-assist' in text_lower or
+#         'emergency braking' in text_lower
+#     )
+    
+#     has_tpms = (
+#         'tpms' in text_lower or 
+#         'tire pressure' in text_lower or
+#         'tyre pressure' in text_lower
+#     )
+    
+#     # ===== EXTRACT REGION =====
+#     is_rural = any(word in text_lower for word in [
+#         'rural', 'low-density', 'low density', 'countryside', 'village'
+#     ])
+    
+#     is_urban = any(word in text_lower for word in [
+#         'urban', 'city', 'metropolitan', 'high-density', 'high density', 'downtown'
+#     ])
+    
+#     # Rural overrides urban if both detected
+#     if is_rural:
+#         is_urban = False
+    
+#     result = {
+#         'customer_age': customer_age,
+#         'vehicle_age': vehicle_age,
+#         'subscription_length': subscription,
+#         'airbags': airbags,
+#         'has_esc': has_esc,
+#         'has_brake_assist': has_brake_assist,
+#         'has_tpms': has_tpms,
+#         'is_urban': is_urban
+#     }
+    
+#     # FINAL DEBUG OUTPUT
+#     print(f"✅ Final extracted features: customer_age={customer_age}, vehicle_age={vehicle_age}, subscription={subscription}")
+    
+#     return result
+
+
+"""
+Enhanced Feature Extraction - ONLY uses information provided in query
+No assumptions, no fabricated details
+"""
+
 def extract_features(text: str) -> Dict:
-    """Extract features from natural language query - FIXED VERSION"""
+    """
+    Extract features from natural language query - ONLY WHAT'S PROVIDED
+    Returns dict with 'value' and 'is_assumed' flag for each feature
+    """
     text_lower = text.lower()
     
     # ===== EXTRACT CUSTOMER AGE =====
-    customer_age = 35  # default
-    
-    # CRITICAL: Match "X-year-old driver" patterns FIRST and MOST SPECIFICALLY
-    driver_patterns = [
-        r'(\d+)[-\s]year[-\s]old\s+driver',     # "42-year-old driver"
-        r'driver.*?(\d+)[-\s]years?\s+old',     # "driver 42 years old"
-        r'(\d+)[-\s]year[-\s]old.*?(?:operates|with|maintains)',  # "42-year-old operates..."
+    customer_age = None
+    age_patterns = [
+        r'(\d+)[-\s]year[-\s]old\s+driver',
+        r'(\d+)[-\s]yo\s+driver',
+        r'driver.*?(\d+)[-\s]years?\s+old',
+        r'(?:^|\s)(\d+)\s+year\s+old\s+driver',
+        r'(?:for|by)\s+a\s+(\d+)\s+year\s+old',
     ]
     
-    for pattern in driver_patterns:
+    for pattern in age_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            customer_age = int(match.group(1))
-            print(f"🔍 Extracted customer_age: {customer_age} from pattern: {pattern}")
-            break
+            age_val = int(match.group(1))
+            if 18 <= age_val <= 100:  # Sanity check
+                customer_age = age_val
+                print(f"🔍 Extracted customer_age: {customer_age}")
+                break
+    
+    if customer_age is None:
+        print(f"⚠️ No customer age found in query - using neutral default")
+        customer_age = 35  # Neutral middle-age default
     
     # ===== EXTRACT VEHICLE AGE =====
-    vehicle_age = 5.0  # default
+    vehicle_age = None
     
-    # CRITICAL: Match "X-year-old vehicle/car/sedan/suv" patterns
-    vehicle_patterns = [
-        r'(\d+\.?\d*)[-\s]year[-\s]old\s+(?:sedan|car|vehicle|suv|truck|petrol|diesel)',
-        r'(?:sedan|car|vehicle|suv|truck)\s+.*?(\d+\.?\d*)[-\s]year[-\s]old',
-        r'operates\s+a\s+(\d+\.?\d*)[-\s]year[-\s]old',
-        r'with\s+a\s+(\d+\.?\d*)[-\s]year[-\s]old',
+    # Pattern 1: "X-year-old car/vehicle/sedan"
+    vehicle_age_patterns = [
+        r'(\d+\.?\d*)[-\s]year[-\s]old\s+(?:car|vehicle|sedan|suv|truck|corolla|forester)',
+        r'(\d{4})\s*[-–]\s*(?:toyota|subaru|honda|nissan|ford|bmw|audi|mercedes)',  # e.g., "2014 - Toyota"
     ]
     
-    for pattern in vehicle_patterns:
+    for pattern in vehicle_age_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            vehicle_age = float(match.group(1))
-            print(f"🔍 Extracted vehicle_age: {vehicle_age} from pattern: {pattern}")
+            val = match.group(1)
+            if len(val) == 4:  # It's a year (e.g., 2014)
+                year = int(val)
+                current_year = datetime.now().year
+                vehicle_age = current_year - year
+                print(f"🔍 Extracted vehicle_age from year {year}: {vehicle_age}")
+            else:  # It's direct age (e.g., "2-year-old")
+                vehicle_age = float(val)
+                print(f"🔍 Extracted vehicle_age: {vehicle_age}")
             break
     
-    # Sanity check: driver age should be 18-100, vehicle age 0-30
-    if customer_age < 18 or customer_age > 100:
-        print(f"⚠️ WARNING: Suspicious customer_age {customer_age}, using default 35")
-        customer_age = 35
+    # Pattern 2: Just the year mentioned (e.g., "2022 Subaru Forester")
+    if vehicle_age is None:
+        year_match = re.search(r'\b(19\d{2}|20[0-2]\d)\b', text_lower)
+        if year_match:
+            year = int(year_match.group(1))
+            current_year = datetime.now().year
+            if 1990 <= year <= current_year:  # Sanity check
+                vehicle_age = current_year - year
+                print(f"🔍 Extracted vehicle_age from year {year}: {vehicle_age}")
     
-    if vehicle_age > 30:
-        print(f"⚠️ WARNING: Suspicious vehicle_age {vehicle_age}, using default 5.0")
-        vehicle_age = 5.0
+    if vehicle_age is None:
+        print(f"⚠️ No vehicle age found in query - using neutral default")
+        vehicle_age = 5.0  # Neutral default
     
-    # ===== EXTRACT SUBSCRIPTION =====
-    subscription = 6  # default
+    # ===== EXTRACT SUBSCRIPTION LENGTH =====
+    subscription = None
     
+    # Pattern 1: Direct mention (e.g., "6-month subscription")
     sub_patterns = [
-        r'(\d+)[-\s]?month\s+subscription',
-        r'subscription.*?(\d+)[-\s]?month',
-        r'maintains\s+a\s+(\d+)[-\s]?month',
-        r'policy.*?(\d+)[-\s]?month',
+        r'(\d+)[-\s]?month\s+(?:subscription|policy|plan)',
+        r'(?:subscription|policy).*?(\d+)[-\s]?months?',
     ]
     
     for pattern in sub_patterns:
         match = re.search(pattern, text_lower)
         if match:
-            subscription = int(round(float(match.group(1))))
+            subscription = int(match.group(1))
             print(f"🔍 Extracted subscription: {subscription} months")
             break
     
+    # Pattern 2: Date-based calculation (e.g., "policy started October 6, 2025")
+    if subscription is None:
+        date_patterns = [
+            r'(?:started|began|from|since)\s+(\w+\s+\d{1,2},?\s+\d{4})',
+            r'(?:policy|insurance)\s+(?:date|start)[:\s]+(\w+\s+\d{1,2},?\s+\d{4})',
+            r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})',  # MM/DD/YYYY or DD/MM/YYYY
+        ]
+        
+        for pattern in date_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                date_str = match.group(1)
+                try:
+                    # Try parsing the date
+                    policy_date = None
+                    for fmt in ['%B %d, %Y', '%B %d %Y', '%m/%d/%Y', '%d/%m/%Y']:
+                        try:
+                            policy_date = datetime.strptime(date_str, fmt)
+                            break
+                        except:
+                            continue
+                    
+                    if policy_date:
+                        current_date = datetime.now()
+                        months_diff = (current_date.year - policy_date.year) * 12 + \
+                                    (current_date.month - policy_date.month)
+                        if 0 <= months_diff <= 24:  # Sanity check: 0-24 months
+                            subscription = months_diff
+                            print(f"🔍 Calculated subscription from date: {subscription} months")
+                            break
+                except Exception as e:
+                    print(f"⚠️ Date parsing failed: {e}")
+    
+    # Pattern 3: Relative time (e.g., "6 months ago")
+    if subscription is None:
+        relative_patterns = [
+            r'(\d+)\s+months?\s+ago',
+            r'for\s+(\d+)\s+months?',
+        ]
+        
+        for pattern in relative_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                subscription = int(match.group(1))
+                print(f"🔍 Extracted subscription from relative time: {subscription} months")
+                break
+    
+    if subscription is None:
+        print(f"⚠️ No subscription length found in query - will note as 'unspecified'")
+        subscription = None  # Keep as None to signal it's unknown
+    
     # ===== EXTRACT AIRBAGS =====
-    airbags_match = re.search(r'(\d+)\s*airbag', text_lower)
-    airbags = int(airbags_match.group(1)) if airbags_match else 4
+    airbags = None
+    airbag_match = re.search(r'(\d+)\s*airbags?', text_lower)
+    if airbag_match:
+        airbags = int(airbag_match.group(1))
+        print(f"🔍 Extracted airbags: {airbags}")
+    else:
+        print(f"⚠️ No airbag count found in query - will note as 'unspecified'")
+        airbags = None
     
     # ===== EXTRACT SAFETY FEATURES =====
-    has_esc = (
-        'esc' in text_lower or 
-        'electronic stability' in text_lower or
-        'stability control' in text_lower
-    ) and 'no esc' not in text_lower and 'without esc' not in text_lower
+    has_esc = None
+    if 'esc' in text_lower or 'electronic stability' in text_lower or 'stability control' in text_lower:
+        if 'no esc' in text_lower or 'without esc' in text_lower:
+            has_esc = False
+            print(f"🔍 Extracted ESC: No")
+        else:
+            has_esc = True
+            print(f"🔍 Extracted ESC: Yes")
+    else:
+        print(f"⚠️ ESC not mentioned in query - will note as 'unspecified'")
     
-    has_brake_assist = (
-        'brake assist' in text_lower or 
-        'brake-assist' in text_lower or
-        'emergency braking' in text_lower
-    )
+    has_brake_assist = None
+    if 'brake assist' in text_lower or 'brake-assist' in text_lower or 'emergency braking' in text_lower:
+        has_brake_assist = True
+        print(f"🔍 Extracted Brake Assist: Yes")
     
-    has_tpms = (
-        'tpms' in text_lower or 
-        'tire pressure' in text_lower or
-        'tyre pressure' in text_lower
-    )
+    has_tpms = None
+    if 'tpms' in text_lower or 'tire pressure' in text_lower or 'tyre pressure' in text_lower:
+        has_tpms = True
+        print(f"🔍 Extracted TPMS: Yes")
     
-    # ===== EXTRACT REGION =====
-    is_rural = any(word in text_lower for word in [
-        'rural', 'low-density', 'low density', 'countryside', 'village'
-    ])
+    # ===== EXTRACT REGION (ONLY IF EXPLICITLY MENTIONED) =====
+    is_urban = None
     
-    is_urban = any(word in text_lower for word in [
-        'urban', 'city', 'metropolitan', 'high-density', 'high density', 'downtown'
-    ])
-    
-    # Rural overrides urban if both detected
-    if is_rural:
+    if any(word in text_lower for word in ['urban', 'city', 'metropolitan', 'downtown']):
+        is_urban = True
+        print(f"🔍 Extracted region: Urban")
+    elif any(word in text_lower for word in ['rural', 'countryside', 'village', 'town']):
         is_urban = False
+        print(f"🔍 Extracted region: Rural")
+    else:
+        print(f"⚠️ Region not mentioned in query - will note as 'unspecified'")
     
+    # ===== BUILD RESULT WITH EXPLICIT FLAGS =====
     result = {
         'customer_age': customer_age,
+        'customer_age_provided': customer_age != 35,  # Flag if it was extracted
+        
         'vehicle_age': vehicle_age,
-        'subscription_length': subscription,
-        'airbags': airbags,
-        'has_esc': has_esc,
-        'has_brake_assist': has_brake_assist,
-        'has_tpms': has_tpms,
-        'is_urban': is_urban
+        'vehicle_age_provided': vehicle_age is not None,
+        
+        'subscription_length': subscription if subscription is not None else 6,  # Use 6 as neutral for risk calc
+        'subscription_provided': subscription is not None,
+        
+        'airbags': airbags if airbags is not None else 4,  # Use 4 as neutral for risk calc
+        'airbags_provided': airbags is not None,
+        
+        'has_esc': has_esc if has_esc is not None else False,  # Conservative assumption
+        'esc_provided': has_esc is not None,
+        
+        'has_brake_assist': has_brake_assist if has_brake_assist is not None else False,
+        'brake_assist_provided': has_brake_assist is not None,
+        
+        'has_tpms': has_tpms if has_tpms is not None else False,
+        'tpms_provided': has_tpms is not None,
+        
+        'is_urban': is_urban if is_urban is not None else False,  # Neutral assumption
+        'region_provided': is_urban is not None,
     }
     
     # FINAL DEBUG OUTPUT
-    print(f"✅ Final extracted features: customer_age={customer_age}, vehicle_age={vehicle_age}, subscription={subscription}")
+    provided_features = [k for k, v in result.items() if k.endswith('_provided') and v]
+    print(f"✅ Extracted features: {', '.join([k.replace('_provided', '') for k in provided_features])}")
+    print(f"⚠️ Using defaults for: {', '.join([k.replace('_provided', '') for k, v in result.items() if k.endswith('_provided') and not v])}")
     
     return result
+
 def calculate_enhanced_risk_score(features: Dict) -> Dict:
     """Calculate risk using validated preprocessing weights from feature engineering"""
     weights = {
