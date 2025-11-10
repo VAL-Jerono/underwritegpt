@@ -1,6 +1,6 @@
 """
-LLM Engine for UnderwriteGPT
-Supports multiple FREE/Open-Source LLM options
+LLM Engine for UnderwriteGPT - FIXED VERSION
+Now generates personalized responses matching actual client details
 """
 
 import os
@@ -9,8 +9,7 @@ from typing import Dict, List, Optional
 import json
 from pathlib import Path
 
-# LLM Options (choose one based on what you install)
-LLM_BACKEND = os.getenv('LLM_BACKEND', 'ollama')  # Changed default to ollama
+LLM_BACKEND = os.getenv('LLM_BACKEND', 'ollama')
 
 
 class UnderwriteLLM:
@@ -42,7 +41,6 @@ class UnderwriteLLM:
     def _init_ollama(self):
         """Initialize Ollama (RECOMMENDED - Best balance of quality and speed)"""
         try:
-            # Test if Ollama is running
             response = requests.get('http://localhost:11434/api/tags', timeout=2)
             if response.status_code == 200:
                 data = response.json()
@@ -55,25 +53,19 @@ class UnderwriteLLM:
                 print(f"✅ Ollama is running")
                 print(f"📋 Available models: {[m.get('name', 'unknown') for m in models]}")
             
-                # Priority order: mistral > zephyr > llama2 > first available
                 preferred_models = [
-                    'zephyr',         # Current model (slow on CPU)
-                    'phi3:mini',      # Fast & good quality (recommended)
-                    'phi3',           # Also good
-                    'gemma:2b',       # Very fast
-                    'tinyllama',      # Fastest but lower quality
-                    'mistral',        # Slower but good quality
-                    'llama2'          # Fallback
-                    ]
+                    'zephyr', 'phi3:mini', 'phi3', 'gemma:2b', 
+                    'tinyllama', 'mistral', 'llama2'
+                ]
+                
             
                 for preferred in preferred_models:
                     for model in models:
                         model_name = model.get('name', '')
                         if preferred in model_name.lower():
                             print(f"✅ Using model: {model_name}")
-                            return model_name  # Return exact name like "zephyr:latest"
+                            return model_name
             
-                # Fallback to first available model
                 first_model = models[0]['name']
                 print(f"⚠️ Using first available model: {first_model}")
                 return first_model
@@ -81,56 +73,48 @@ class UnderwriteLLM:
                 raise Exception("Ollama not responding")
         except Exception as e:
             print(f"❌ Ollama initialization failed: {e}")
-            print("💡 Install Ollama from https://ollama.ai then run: ollama pull mistral")
+            print("💡 Falling back to template mode")
             return None
     
     def _init_huggingface(self):
-        """Initialize HuggingFace local model (Requires setup)"""
+        """Initialize HuggingFace local model"""
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
             import torch
             
             model_name = "HuggingFaceH4/zephyr-7b-beta"
-            print("✅ Loading HuggingFace model (Zephyr-7B-beta, 4-bit CPU mode)...")
-
-            # 4-bit quantization for Intel Mac CPU performance
+            print("✅ Loading HuggingFace model...")
+            
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_compute_dtype=torch.float16,
             )
-
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
-                local_files_only=True
-            )
-
+            
+            tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 quantization_config=bnb_config,
                 device_map="cpu",
                 local_files_only=True
             )
-
-            print("✅ HuggingFace model loaded in efficient CPU mode")
+            
+            print("✅ HuggingFace model loaded")
             return (model, tokenizer)
-
         except Exception as e:
             print(f"❌ HuggingFace initialization failed: {e}")
-            print("💡 Ensure model is downloaded into ~/.cache/huggingface/hub/")
             return None
     
     def _init_gpt4all(self):
-        """Initialize GPT4All (Completely offline, no setup needed)"""
+        """Initialize GPT4All"""
         try:
             from gpt4all import GPT4All
-            print("✅ Loading GPT4All (Mistral-7B-OpenOrca)...")
+            print("✅ Loading GPT4All...")
             model = GPT4All("mistral-7b-openorca.Q4_0.gguf")
             print("✅ GPT4All initialized successfully!")
             return model
         except Exception as e:
             print(f"❌ GPT4All initialization failed: {e}")
-            print("💡 Install: pip install gpt4all")
             return None
     
     def generate_underwriting_response(
@@ -141,12 +125,8 @@ class UnderwriteLLM:
         risk_analysis: Dict,
         mode: str = 'underwriter'
     ) -> str:
-        """
-        Generate a SINGLE concise paragraph explaining the underwriting decision
-        Returns a single string (not a list)
-        """
+        """Generate a SINGLE concise paragraph explaining the underwriting decision"""
         
-        # Build context-rich prompt
         prompt = self._build_prompt(decision, features, evidence, risk_analysis, mode)
         
         # Check cache first
@@ -158,7 +138,7 @@ class UnderwriteLLM:
         
         # Generate response
         if self.model is None:
-            print(f"⚠️ No model loaded, using fallback for mode: {mode}")
+            print(f"⚠️ No model loaded, using dynamic fallback for mode: {mode}")
             return self._fallback_response(decision, features, evidence, risk_analysis, mode)
         
         try:
@@ -169,11 +149,9 @@ class UnderwriteLLM:
                 print(f"⚠️ Empty response from LLM, using fallback")
                 return self._fallback_response(decision, features, evidence, risk_analysis, mode)
             
-            # Clean up the response to ensure it's a single paragraph
             cleaned_response = self._clean_response(response)
             print(f"✅ Generated response: {len(cleaned_response)} chars")
             
-            # Cache the response
             self._cache_response(cache_key, cleaned_response)
             
             return cleaned_response
@@ -238,25 +216,23 @@ Response:"""
                     json={
                         "model": self.model,
                         "prompt": prompt,
-                        "stream": True, #False,
+                        "stream": True,
                         "options": {
                             "temperature": 0.4,
-                            "num_predict": 200,  # Increased to avoid cutoffs
+                            "num_predict": 200,
                             "top_p": 0.9,
                             "num_ctx": 2048,
-                            "stop": ["\n\n", "---"]  # Stop at double newline or separator
+                            "stop": ["\n\n", "---"]
                         }
                     },
-                    stream=True, #Enable streaming on request side
-                    timeout=(5, None)  # 5 sec connection timeout, no read timeout
+                    stream=True,
+                    timeout=(5, None)
                 )
                 
-                # Check if request was successful
                 if response.status_code != 200:
                     print(f"⚠️ Ollama returned status {response.status_code}")
                     return ""
                 
-                # Collect the streamed response
                 full_response = ""
                 chunk_count = 0
                 
@@ -268,8 +244,7 @@ Response:"""
                             try:
                                 json_response = json.loads(line)
                                 chunk_count += 1
-
-                                # Print progress every 10 chunks
+                                
                                 if chunk_count % 10 == 0:
                                     print(f"  ... received {chunk_count} chunks")
                                 
@@ -277,16 +252,14 @@ Response:"""
                                     full_response += json_response["response"]
                                 
                                 if json_response.get("done", False):
-                                    print(f"✅ Streaming complete! Received {chunk_count} chunks, {len(full_response)} characters")
+                                    print(f"✅ Streaming complete! {chunk_count} chunks, {len(full_response)} chars")
                                     break
-                            except json.JSONDecodeError as e:
-                                print(f"⚠️ Failed to parse JSON: {line[:100]}")
+                            except json.JSONDecodeError:
                                 continue
                 
                 except Exception as stream_error:
                     print(f"⚠️ Streaming error: {stream_error}")
                     if full_response:
-                        print(f"⚠️ Partial response received ({len(full_response)} chars), using it anyway")
                         return full_response.strip()
                     return ""
                     
@@ -296,15 +269,10 @@ Response:"""
                 return full_response.strip()
             
             except requests.exceptions.Timeout:
-                print(f"⚠️ Ollama connection timeout (server not responding)")
-                return ""
-            except requests.exceptions.RequestException as e:
-                print(f"⚠️ Ollama API request failed: {e}")
+                print(f"⚠️ Ollama connection timeout")
                 return ""
             except Exception as e:
                 print(f"⚠️ Unexpected error in Ollama call: {e}")
-                import traceback
-                traceback.print_exc()
                 return ""
             
         elif self.backend == 'huggingface':
@@ -327,16 +295,10 @@ Response:"""
     
     def _clean_response(self, response: str) -> str:
         """Clean up LLM response to ensure it's a single paragraph"""
-        # Remove any markdown formatting
         response = response.replace('**', '')
-        
-        # Remove multiple newlines and replace with space
         response = ' '.join(response.split('\n'))
-        
-        # Remove multiple spaces
         response = ' '.join(response.split())
         
-        # Trim to reasonable length (max ~300 words)
         words = response.split()
         if len(words) > 300:
             response = ' '.join(words[:300]) + '...'
@@ -344,7 +306,10 @@ Response:"""
         return response.strip()
     
     def _fallback_response(self, decision, features, evidence, risk_analysis, mode='underwriter') -> str:
-        """High-quality single-paragraph template fallback"""
+        """
+        FIXED: Dynamic template fallback that uses ACTUAL client details
+        No more hardcoded values!
+        """
         
         tier = decision['tier']
         age = features['customer_age']
@@ -354,28 +319,114 @@ Response:"""
         total = evidence['total']
         claim_rate = (claims / total * 100) if total > 0 else 0
         risk_pct = risk_analysis['overall'] * 100
+        airbags = features['airbags']
+        has_esc = features['has_esc']
+        is_urban = features['is_urban']
+        
+        # Build safety description
+        safety_desc = f"{airbags} airbag{'s' if airbags != 1 else ''}"
+        if has_esc:
+            safety_desc += " with ESC"
+        else:
+            safety_desc += " without ESC"
+        
+        location_desc = "urban area" if is_urban else "rural area"
+        
+        # Calculate multiplier vs baseline
+        baseline_rate = 6.4
+        multiplier = claim_rate / baseline_rate if baseline_rate > 0 else 1
         
         if mode == 'mycar':
             # PERSONALIZED TEMPLATES FOR MY CAR CHECK
             templates = {
-                'APPROVE': f"Great news about your car! Your {v_age}-year-old vehicle with its {features['airbags']} airbags and {'excellent' if features['has_esc'] else 'basic'} safety features qualifies for standard insurance rates. At {age} years old with a {sub}-month policy, you're in a strong position—your profile shows only {risk_pct:.1f}% risk, and similar drivers filed claims just {claim_rate:.1f}% of the time (well below the 6.4% average). You can expect approval within 24-48 hours with no extra conditions or fees.",
-            
-                'MONITOR': f"We can definitely insure your {v_age}-year-old car, though we'll need to add a 15-20% premium adjustment for the first year. Your profile shows moderate risk at {risk_pct:.1f}%—when we looked at {total} drivers similar to you, {claims} filed claims ({claim_rate:.1f}% rate). The good news? After you build a claims-free history over the next 12 months, we'll review your rates and likely reduce that premium. Your {'strong' if features['has_esc'] else 'adequate'} safety features help, and we're confident this will work out well.",
-            
-                'CONDITIONAL': f"Your {v_age}-year-old vehicle can be insured, but we need to be upfront about the conditions. Your profile shows elevated risk at {risk_pct:.1f}%—similar drivers in our database filed claims {claim_rate:.1f}% of the time, which is notably higher than typical. We can offer coverage with a 30-40% premium increase and a $1,500 deductible. Consider this a bridge policy: drive safely for 12 months, and we'll reassess for better terms. You might also explore adding more safety features to your car to improve your profile.",
-            
-                'REJECT': f"Unfortunately, we can't insure your {v_age}-year-old vehicle under our standard policies right now. Your profile shows {risk_pct:.1f}% risk, and when we analyzed {total} similar cases, {claims} resulted in claims—that's {claim_rate/6.4:.1f}x higher than what our pricing can support. This isn't personal—it's about matching risk with appropriate coverage. We recommend: (1) Consider a newer vehicle with better safety features, (2) Try a specialized high-risk insurer, or (3) Build insurance history elsewhere and reapply with us in 12-18 months."
+                'APPROVE': (
+                    f"Great news about your car! Your {v_age:.1f}-year-old vehicle with {safety_desc} "
+                    f"qualifies for standard insurance rates. At {age} years old with a {sub}-month policy "
+                    f"in a {location_desc}, you're in a strong position—your profile shows {risk_pct:.1f}% risk, "
+                    f"and similar drivers filed claims just {claim_rate:.1f}% of the time "
+                    f"({'well below' if claim_rate < baseline_rate else 'near'} the {baseline_rate}% average). "
+                    f"You can expect approval within 24-48 hours with no extra conditions or fees."
+                ),
+                
+                'MONITOR': (
+                    f"We can definitely insure your {v_age:.1f}-year-old car with {safety_desc}, "
+                    f"though we'll need to add a 15-20% premium adjustment for the first year. "
+                    f"Your profile shows moderate risk at {risk_pct:.1f}%—when we looked at {total} drivers "
+                    f"similar to you (age {age}, {sub}-month subscription, {location_desc}), {claims} filed claims "
+                    f"({claim_rate:.1f}% rate). The good news? After you build a claims-free history over the next "
+                    f"12 months, we'll review your rates and likely reduce that premium. "
+                    f"Your {'strong' if has_esc else 'adequate'} safety features help, and we're confident this will work out well."
+                ),
+                
+                'CONDITIONAL': (
+                    f"Your {v_age:.1f}-year-old vehicle with {safety_desc} can be insured, "
+                    f"but we need to be upfront about the conditions. As a {age}-year-old driver with a "
+                    f"{sub}-month subscription in a {location_desc}, your profile shows elevated risk at {risk_pct:.1f}%—"
+                    f"similar drivers in our database filed claims {claim_rate:.1f}% of the time, which is "
+                    f"{multiplier:.1f}x higher than typical. We can offer coverage with a 30-40% premium increase "
+                    f"and a $1,500 deductible. Consider this a bridge policy: drive safely for 12 months, "
+                    f"and we'll reassess for better terms. "
+                    f"{'Adding ESC or other safety features would significantly improve your profile.' if not has_esc else ''}"
+                ),
+                
+                'REJECT': (
+                    f"Unfortunately, we can't insure your {v_age:.1f}-year-old vehicle with {safety_desc} "
+                    f"under our standard policies right now. As a {age}-year-old driver with a {sub}-month subscription "
+                    f"in a {location_desc}, your profile shows {risk_pct:.1f}% risk. When we analyzed {total} similar cases, "
+                    f"{claims} resulted in claims—that's {claim_rate:.1f}%, or {multiplier:.1f}x higher than what our "
+                    f"pricing can support. This isn't personal—it's about matching risk with appropriate coverage. "
+                    f"We recommend: (1) Consider {'a newer vehicle with better safety features' if v_age > 5 else 'adding ESC and other safety features'}, "
+                    f"(2) Try a specialized high-risk insurer, or (3) Build insurance history elsewhere and reapply in 12-18 months."
+                )
             }
         else:
             # UNDERWRITER MODE TEMPLATES - COMPANY VOICE
             templates = {
-                'APPROVE': f"After analyzing this application against our database of 58,000+ policies, we're pleased to recommend standard approval for coverage. The profile shows a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month subscription, demonstrating strong low-risk characteristics with a calculated risk score of {risk_pct:.1f}%. Our analysis of {total} similar cases revealed only {claims} claims ({claim_rate:.1f}% claim rate), significantly below our industry baseline of 6.4%. This application qualifies for standard rates with no additional conditions, and the policy can be processed within 24-48 hours.",
-        
-                'MONITOR': f"We appreciate this application and can offer coverage with some adjustments to ensure mutual protection. The profile presents a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month plan, showing moderate risk characteristics reflected in the {risk_pct:.1f}% risk score. Comparing against {total} similar policies in our database, we found {claims} resulted in claims ({claim_rate:.1f}% rate), slightly above our 6.4% baseline. Based on this analysis, we recommend approval with a 15-20% premium adjustment and quarterly monitoring during the first year; as a claims-free history builds, we can revisit these terms for improved rates.",
-        
-                'CONDITIONAL': f"We value this application and want to find a path forward, though the profile requires certain conditions for approval. As a {age}-year-old with a {v_age}-year-old vehicle on a {sub}-month subscription, the risk profile scores at {risk_pct:.1f}%, placing it in our higher-risk category based on actuarial data. Our analysis of {total} similar cases revealed {claims} claims—a {claim_rate:.1f}% rate notably higher than our 6.4% industry average—necessitating additional safeguards. We propose approval with a 30-40% premium loading, higher deductible ($1,500), and enhanced documentation requirements; after 12 months of claims-free driving, we'll review the policy for improved rates.",
-        
-                'REJECT': f"We appreciate the interest in our coverage, though after thorough analysis, our underwriting team must decline this application at this time. The profile of a {age}-year-old driver with a {v_age}-year-old vehicle on a {sub}-month plan triggers multiple high-risk indicators in our system, resulting in a {risk_pct:.1f}% risk score. Our analysis of {total} similar policies found {claims} filed claims within their policy period—a {claim_rate:.1f}% rate that's {claim_rate/6.4:.1f}x our industry standard—exceeding the exposure levels our risk models can responsibly accommodate. We encourage considering building insurance history with a specialized carrier, exploring vehicles with advanced safety features, or revisiting the application after establishing a longer driving record."
+                'APPROVE': (
+                    f"After analyzing this application against our database of 58,000+ policies, we're pleased to "
+                    f"recommend standard approval for coverage. The profile shows a {age}-year-old driver with a "
+                    f"{v_age:.1f}-year-old vehicle ({safety_desc}) on a {sub}-month subscription in a {location_desc}, "
+                    f"demonstrating strong low-risk characteristics with a calculated risk score of {risk_pct:.1f}%. "
+                    f"Our analysis of {total} similar cases revealed only {claims} claims ({claim_rate:.1f}% claim rate), "
+                    f"{'significantly below' if claim_rate < baseline_rate else 'aligned with'} our industry baseline of {baseline_rate}%. "
+                    f"This application qualifies for standard rates with no additional conditions, and the policy can be "
+                    f"processed within 24-48 hours."
+                ),
+                
+                'MONITOR': (
+                    f"We appreciate this application and can offer coverage with some adjustments to ensure mutual protection. "
+                    f"The profile presents a {age}-year-old driver with a {v_age:.1f}-year-old vehicle ({safety_desc}) "
+                    f"on a {sub}-month plan in a {location_desc}, showing moderate risk characteristics reflected in the "
+                    f"{risk_pct:.1f}% risk score. Comparing against {total} similar policies in our database, we found "
+                    f"{claims} resulted in claims ({claim_rate:.1f}% rate), {'slightly above' if multiplier > 1 else 'near'} "
+                    f"our {baseline_rate}% baseline. Based on this analysis, we recommend approval with a 15-20% premium "
+                    f"adjustment and quarterly monitoring during the first year; as a claims-free history builds, we can "
+                    f"revisit these terms for improved rates."
+                ),
+                
+                'CONDITIONAL': (
+                    f"We value this application and want to find a path forward, though the profile requires certain "
+                    f"conditions for approval. As a {age}-year-old driver with a {v_age:.1f}-year-old vehicle "
+                    f"({safety_desc}) on a {sub}-month subscription in a {location_desc}, the risk profile scores at "
+                    f"{risk_pct:.1f}%, placing it in our higher-risk category based on actuarial data. Our analysis of "
+                    f"{total} similar cases revealed {claims} claims—a {claim_rate:.1f}% rate notably "
+                    f"{'higher' if multiplier > 1.5 else 'elevated'} compared to our {baseline_rate}% industry average—"
+                    f"necessitating additional safeguards. We propose approval with a 30-40% premium loading, higher "
+                    f"deductible ($1,500), and enhanced documentation requirements; after 12 months of claims-free driving, "
+                    f"we'll review the policy for improved rates."
+                ),
+                
+                'REJECT': (
+                    f"We appreciate the interest in our coverage, though after thorough analysis, our underwriting team "
+                    f"must decline this application at this time. The profile of a {age}-year-old driver with a "
+                    f"{v_age:.1f}-year-old vehicle ({safety_desc}) on a {sub}-month plan in a {location_desc} triggers "
+                    f"multiple high-risk indicators in our system, resulting in a {risk_pct:.1f}% risk score. Our analysis "
+                    f"of {total} similar policies found {claims} filed claims within their policy period—a {claim_rate:.1f}% "
+                    f"rate that's {multiplier:.1f}x our industry standard—exceeding the exposure levels our risk models can "
+                    f"responsibly accommodate. We encourage considering building insurance history with a specialized carrier, "
+                    f"exploring vehicles with advanced safety features{'(particularly ESC)' if not has_esc else ''}, or "
+                    f"revisiting the application after establishing a longer driving record."
+                )
             }
         
         return templates.get(tier, templates['CONDITIONAL'])
@@ -404,17 +455,6 @@ Response:"""
                 json.dump(response, f)
         except Exception as e:
             print(f"⚠️ Cache write failed: {e}")
-    
-    def _init_huggingface_api(self):
-        """Use HuggingFace Inference API (free tier available)"""
-        try:
-            import os
-            api_key = os.getenv('HF_API_KEY')  # Set in Streamlit secrets
-            if api_key:
-                return {'api_key': api_key, 'model': 'mistralai/Mistral-7B-Instruct-v0.2'}
-        except:
-            pass
-        return None
 
 
 # Singleton instance
