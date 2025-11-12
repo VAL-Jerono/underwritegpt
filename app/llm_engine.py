@@ -256,7 +256,7 @@ class UnderwriteLLM:
                 )
             }
         else:
-            # UNDERWRITER MODE
+            # UNDERWRITER MODE:
             templates = {
                 'APPROVE': (
                     f"After analyzing this application against our database, we recommend standard approval. "

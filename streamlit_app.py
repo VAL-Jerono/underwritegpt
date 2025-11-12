@@ -656,7 +656,7 @@ def extract_features(text: str) -> Dict:
         'is_urban': is_urban if is_urban is not None else False,  # Neutral assumption
         'region_provided': is_urban is not None,
     }
-    
+
     # FINAL DEBUG OUTPUT
     provided_features = [k for k, v in result.items() if k.endswith('_provided') and v]
     print(f"✅ Extracted features: {', '.join([k.replace('_provided', '') for k in provided_features])}")
