@@ -1006,7 +1006,7 @@ We offer free 30 minute consultations for African insurance agencies interested 
 - Agent training approach
 - Deployment timeline and costs
 
-**Schedule:** [kipropvalerie@gmail.com](mailto:your.email@example.com)
+**Schedule:** [Mail](kipropvalerie@gmail.com)
 
 ### For Developers
 
@@ -1019,7 +1019,7 @@ This project is open source (MIT License). We welcome contributions:
 - UI/UX enhancements
 - Documentation improvements
 
-**GitHub:** [https://github.com/VAL-Jerono/underwritegpt.git](https://github.com/yourrepo/underwritegpt)
+**GitHub:** [Github](https://github.com/VAL-Jerono/underwritegpt.git)
 
 ### For Researchers
 
@@ -1033,12 +1033,12 @@ Interested in studying AI adoption in African insurance? We're open to research 
 - Fairness and bias in AI underwriting
 - Economic impact analysis
 
-**Contact:** [kipropvalerie@gmail.com](mailto:research@example.com)
+**Contact:** [Mail](kipropvalerie@gmail.com)
 
 ### Technical Support
 
 **For Agencies Using UnderwriteGPT:**
-- Email: [kipropvalerie@gmail.com](mailto:support@example.com)
+- Email: [Mail](kipropvalerie@gmail.com)
 - Response time: 24 hours
 - Training materials: Available in English, French, Swahili
 - Video tutorials
@@ -1444,10 +1444,10 @@ This project uses synthetic insurance data for demonstration. No real customer d
 ### Three Simple Steps
 
 **1. Try the Demo** (2 minutes)
-Visit [underwritegpt.streamlit.app](https://underwritegpt.streamlit.app) and test it yourself.
+Visit [Streamlit](underwritegpt.streamlit.app) and test it yourself.
 
 **2. Schedule a Call** (30 minutes)
-Email [kipropvalerie@gmail.com](mailto:your.email@example.com) to discuss your agency's needs.
+Email [Mail](kipropvalerie@gmail.com) to discuss your agency's needs.
 
 **3. Deploy** (1 week)
 We'll help you set up, train your team, and go live.
@@ -1495,7 +1495,7 @@ Technology should make insurance more human, not less. UnderwriteGPT puts powerf
 - **Customer satisfaction:** 85%
 - **Decision consistency:** 89%
 
-**Updated monthly at:** [https://medium.com/@sephinee]
+**Updated monthly at:** [Medium](https://medium.com/@sephinee)
 
 ---
 
@@ -1524,17 +1524,12 @@ Making insurance technology accessible to all.
 
 ---
 
-**Questions? Ready to get started?**  
-📧 [your.email@example.com](mailto:kipropvalerie@gmail.com)  
-🌐 [underwritegpt.streamlit.app](https://underwritegpt.streamlit.app)  
-💼 [LinkedIn](https://www.linkedin.com/in/valerie-jerono) 
-[Medium]
 
 **Questions? Ready to get started?**  
-📧 [kipropvalerie@gmail.com](mailto:)  
-🌐 [https://underwritegpt.streamlit.app](Streamlit app)  
-💼 [https://www.linkedin.com/in/valerie-jerono](Linked-In)  
-🐦 [https://medium.com/@sephinee](Medium)
+📧 [Mail](kipropvalerie@gmail.com)  
+🌐 [Streamlit](https://underwritegpt.streamlit.app) 
+💼 [Linked-In](https://www.linkedin.com/in/valerie-jerono) 
+🐦 [Medium](https://medium.com/@sephinee)
 
 
 ---
