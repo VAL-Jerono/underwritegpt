@@ -797,7 +797,7 @@ def health_check():
 ```bash
 # Install FastAPI
 pip install fastapi uvicorn
-
+ 
 # Run server
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
