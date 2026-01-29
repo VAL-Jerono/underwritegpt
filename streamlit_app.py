@@ -905,6 +905,10 @@ if 'messages' not in st.session_state:
     st.session_state.messages = []
 if 'mode' not in st.session_state:
     st.session_state.mode = 'underwriter'
+if 'query_text' not in st.session_state:
+    st.session_state.query_text = ''
+if 'last_analyzed_query' not in st.session_state:
+    st.session_state.last_analyzed_query = ''
 
 # Load system
 with st.spinner('🚀 Loading AI system...'):
@@ -948,128 +952,64 @@ if len(st.session_state.messages) == 0:
     for col, (label, query) in zip([col1, col2, col3], scenarios):
         with col:
             if st.button(label, use_container_width=True):
-                st.session_state.current_query = query
+                st.session_state.query_text = query
                 st.rerun()
-   
-# # Query input
-# query = st.text_input(
-#     "💬 Describe the application" if st.session_state.mode == 'underwriter' else "🚗 Describe your car",
-#     placeholder="e.g., 35-year-old driver, 4-year-old sedan, 4 airbags, urban area, 6-month subscription",
-#     key="query_input",
-#     value=st.session_state.get('current_query', '')  
 
-# )
-# # if 'current_query' in st.session_state:
-# #     query = st.session_state.current_query
-# #     del st.session_state.current_query
-
-# if st.button("🔍 Analyze Application", use_container_width=True, type="primary"): #or query:
-#     if query:
-#         with st.spinner('🤖 AI is analyzing... Searching 58K+ policies and generating response...'):
-#             # Extract features
-#             features = extract_features(query)
-#             with st.expander("🔍 Debug: Extracted Features", expanded=False):
-#                 st.json(features)
-            
-#             # Calculate risk
-#             risk_analysis = calculate_enhanced_risk_score(features)
-            
-#             # Search similar cases
-#             similar_cases = search_similar_cases(query, model, index, df, k=20)
-            
-#             # Make decision
-#             decision = make_decision(risk_analysis, similar_cases)
-            
-#             # Generate LLM response (now returns single string)
-#             llm_response = llm_engine.generate_underwriting_response(
-#                 decision, features, decision['evidence'], risk_analysis,
-#                 mode=st.session_state.mode 
-#             )
-            
-#             result = {
-#                 'features': features,
-#                 'risk_analysis': risk_analysis,
-#                 'decision': decision,
-#                 'llm_response': llm_response,  # Now a string, not a list
-#                 'similar_cases': similar_cases
-#             }
-            
-#             st.session_state.messages.append({'query': query, 'result': result})
-#             st.rerun() 
-# Add this to the query input section (around line 800) in streamlit_app.py
-
-# Initialize session state for query
-if 'query_text' not in st.session_state:
-    st.session_state.query_text = ''
-if 'current_query' not in st.session_state:
-    st.session_state.current_query = ''
-if 'analyzing' not in st.session_state:
-    st.session_state.analyzing = False
-
-# Query input - use callback to prevent reruns while typing
-def update_query():
-    st.session_state.query_text = st.session_state.query_input
-
-query = st.text_input(
-    "💬 Describe the application" if st.session_state.mode == 'underwriter' else "🚗 Describe your car",
-    placeholder="e.g., 35-year-old driver, 4-year-old sedan, 4 airbags, urban area, 6-month subscription",
-    key="query_input",
-    value=st.session_state.get('current_query', ''),
-    on_change=update_query,
-    disabled=st.session_state.get('analyzing', False)  # Disable during analysis
-)
-
-# Use the stored query text
-query = st.session_state.get('query_text', query)
-
-# Clear the current_query after using it
+# Handle quick scenario clicks
 if 'current_query' in st.session_state and st.session_state.current_query:
     st.session_state.query_text = st.session_state.current_query
     st.session_state.current_query = ''
 
-if st.button("🔍 Analyze Application", use_container_width=True, type="primary", 
-            disabled=st.session_state.get('analyzing', False)):
+# Query input - keeps the last analyzed query visible
+query = st.text_input(
+    "💬 Describe the application" if st.session_state.mode == 'underwriter' else "🚗 Describe your car",
+    placeholder="e.g., 35-year-old driver, 4-year-old sedan, 4 airbags, urban area, 6-month subscription",
+    key="query_input",
+    value=st.session_state.query_text  # Always show the current query text
+)
+
+# Update query_text whenever user types
+if query != st.session_state.query_text:
+    st.session_state.query_text = query
+
+if st.button("🔍 Analyze Application", use_container_width=True, type="primary"):
     if query:
-        # Set analyzing flag to prevent interruptions
-        st.session_state.analyzing = True
+        # Store the query being analyzed
+        st.session_state.last_analyzed_query = query
         
         with st.spinner('🤖 AI is analyzing... Searching 58K+ policies and generating response...'):
-            try:
-                # Extract features
-                features = extract_features(query)
-                with st.expander("🔍 Debug: Extracted Features", expanded=False):
-                    st.json(features)
-                
-                # Calculate risk
-                risk_analysis = calculate_enhanced_risk_score(features)
-                
-                # Search similar cases
-                similar_cases = search_similar_cases(query, model, index, df, k=20)
-                
-                # Make decision
-                decision = make_decision(risk_analysis, similar_cases)
-                
-                # Generate LLM response (now uses actual features!)
-                llm_response = llm_engine.generate_underwriting_response(
-                    decision, features, decision['evidence'], risk_analysis,
-                    mode=st.session_state.mode 
-                )
-                
-                result = {
-                    'features': features,
-                    'risk_analysis': risk_analysis,
-                    'decision': decision,
-                    'llm_response': llm_response,
-                    'similar_cases': similar_cases
-                }
-                
-                st.session_state.messages.append({'query': query, 'result': result})
-                
-            finally:
-                # Reset analyzing flag
-                st.session_state.analyzing = False
-                
+            # Extract features
+            features = extract_features(query)
+            with st.expander("🔍 Debug: Extracted Features", expanded=False):
+                st.json(features)
+            
+            # Calculate risk
+            risk_analysis = calculate_enhanced_risk_score(features)
+            
+            # Search similar cases
+            similar_cases = search_similar_cases(query, model, index, df, k=20)
+            
+            # Make decision
+            decision = make_decision(risk_analysis, similar_cases)
+            
+            # Generate LLM response (now uses actual features!)
+            llm_response = llm_engine.generate_underwriting_response(
+                decision, features, decision['evidence'], risk_analysis,
+                mode=st.session_state.mode 
+            )
+            
+            result = {
+                'features': features,
+                'risk_analysis': risk_analysis,
+                'decision': decision,
+                'llm_response': llm_response,
+                'similar_cases': similar_cases
+            }
+            
+            st.session_state.messages.append({'query': query, 'result': result})
+            
         st.rerun()
+
 # Display results
 if st.session_state.messages:
     latest = st.session_state.messages[-1]
@@ -1217,8 +1157,8 @@ if st.session_state.messages:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔄 Start New Assessment", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.query_text = ''  # Also clear the query text
         st.rerun()
-# In your streamlit_app.py, replace the sidebar LLM Backend section with:
 
 with st.sidebar:
     st.markdown("### 🎯 About UnderwriteGPT")
@@ -1263,21 +1203,6 @@ with st.sidebar:
     
     st.markdown("#### 🤖 LLM Backend")
     backend = llm_engine.backend
-    
-    # # DEBUG: Let's see what's actually loaded
-    # st.write(f"DEBUG - Backend: {backend}")
-    # st.write(f"DEBUG - Model: {llm_engine.model}")
-    # st.write(f"DEBUG - Model type: {type(llm_engine.model)}")
-
-    # # FIXED: Proper status checking
-    # if backend == 'template' or llm_engine.model is None:
-    #     status = '⚠️ Using fallback templates'
-    #     status_color = '#f59e0b'
-    # else:
-    #     status = f'✅ Active ({llm_engine.model})'
-    #     status_color = '#10b981'
-        
-    # FIXED: Proper status checking
     
     if backend == 'template' or llm_engine.model is None:
         status = '⚠️ Using fallback templates'
